@@ -10,3 +10,4 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         
     def forward(self, x):
+        
