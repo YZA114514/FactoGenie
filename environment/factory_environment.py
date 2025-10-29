@@ -299,7 +299,7 @@ class LayoutEnvironment:
         # 这里调用RewardCalculator
         # 暂时返回简单的运输强度奖励
         
-        from .reward_functions import RewardCalculator
+        from .reward_function import RewardCalculator
         
         calculator = RewardCalculator(
             layout_grid=self.layout_grid,

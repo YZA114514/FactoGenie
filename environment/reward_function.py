@@ -1,294 +1,331 @@
 """
-仿真接口模块
+奖励函数模块
 负责人：张毅
 
-对接现有的SimPy仿真代码，为RL环境提供动态目标评估
+实现多目标奖励计算，参考文献中的公式
 """
 
 import numpy as np
 from typing import Dict, List, Tuple, Optional
+# 注意：如果需要高级距离计算，可以取消下面的注释
+# from scipy.spatial.distance import cdist
 
 
-class SimulationInterface:
+class RewardCalculator:
     """
-    SimPy仿真接口
+    多目标奖励计算器
     
-    将布局配置传递给现有的SimPy仿真，获取动态性能指标：
-    - 生产周期时间 (Throughput Time)
-    - 功能单元利用率 (Utilization)
-    - 物料流利用率 (Material Flow Utilization)
-    - 交通拥堵时间 (Traffic Congestion)
+    支持的目标：
+    1. 运输强度 (Transportation Intensity) - 解析
+    2. 物料流清晰度 (Material Flow Clarity) - 解析
+    3. 生产周期时间 (Throughput Time) - 仿真
+    4. 功能单元利用率 (Utilization) - 仿真
     """
     
     def __init__(
         self,
-        simulation_config: Dict = None
+        layout_grid: np.ndarray,
+        placed_units: List[Tuple],
+        material_flow: np.ndarray,
+        functional_units: List[Dict],
+        objective_weights: Dict[str, float]
     ):
         """
-        初始化仿真接口
+        初始化奖励计算器
         
         Args:
-            simulation_config: 仿真配置参数
-                {
-                    'simulation_time': 480,  # 仿真时长（分钟）
-                    'num_replications': 3,   # 重复次数
-                    'warm_up_time': 60,      # 预热时间
-                    ... 其他仿真参数
-                }
+            layout_grid: 布局网格
+            placed_units: 已放置单元列表 [(unit_id, x, y, rotation), ...]
+            material_flow: 物料流矩阵 [N, N]
+            functional_units: 功能单元配置
+            objective_weights: 目标权重
         """
-        self.config = simulation_config or self._default_config()
+        self.layout_grid = layout_grid
+        self.placed_units = placed_units
+        self.material_flow = material_flow
+        self.functional_units = functional_units
+        self.objective_weights = objective_weights
         
-        # 这里导入你们已完成的SimPy仿真模块
-        # TODO: 根据实际仿真代码调整导入
-        # from simulation.your_simulation_module import YourSimulation
-        # self.simulation_model = YourSimulation
-    
-    def run_simulation(
-        self,
-        layout_config: Dict,
-        production_program: Optional[List] = None
-    ) -> Dict[str, float]:
-        """
-        运行仿真并返回性能指标
-        
-        Args:
-            layout_config: 布局配置
-                {
-                    'placed_units': [(unit_id, x, y, rotation), ...],
-                    'functional_units': [...],
-                    'grid_size': (nx, ny),
-                    'material_flow': np.ndarray
-                }
-            production_program: 生产计划（可选）
-            
-        Returns:
-            性能指标字典
-                {
-                    'throughput_time': float,      # 平均生产周期
-                    'unit_utilization': float,     # 功能单元利用率
-                    'mf_utilization': float,       # 物料流利用率
-                    'congestion_time': float,      # 拥堵时间
-                    'makespan': float              # 完工时间
-                }
-        """
-        # ============================================================
-        # TODO: 人员A需要根据实际SimPy仿真代码实现这部分
-        # ============================================================
-        
-        # 示例代码结构（需要根据实际仿真调整）:
-        """
-        # 1. 转换布局配置为仿真可用的格式
-        sim_layout = self._convert_layout_to_simulation_format(layout_config)
-        
-        # 2. 初始化仿真模型
-        sim = self.simulation_model(
-            layout=sim_layout,
-            production_program=production_program or self._default_production_program(),
-            config=self.config
-        )
-        
-        # 3. 运行仿真
-        results = sim.run()
-        
-        # 4. 提取性能指标
-        metrics = {
-            'throughput_time': results.get_throughput_time(),
-            'unit_utilization': results.get_unit_utilization(),
-            'mf_utilization': results.get_material_flow_utilization(),
-            'congestion_time': results.get_congestion_time(),
-            'makespan': results.get_makespan()
-        }
-        
-        return metrics
-        """
-        
-        # 暂时返回模拟数据（用于开发阶段测试）
-        return self._get_mock_simulation_results(layout_config)
-    
-    def _convert_layout_to_simulation_format(
-        self,
-        layout_config: Dict
-    ) -> Dict:
-        """
-        将RL布局配置转换为SimPy仿真所需的格式
-        
-        Args:
-            layout_config: RL环境的布局配置
-            
-        Returns:
-            SimPy仿真配置
-        """
-        # TODO: 根据实际仿真输入格式实现转换
-        
-        placed_units = layout_config['placed_units']
-        functional_units = layout_config['functional_units']
-        
-        # 示例：创建功能单元位置字典
-        unit_positions = {}
-        for unit_id, x, y, rotation in placed_units:
-            unit_positions[unit_id] = {
-                'x': x,
-                'y': y,
-                'rotation': rotation,
-                'name': functional_units[unit_id]['name']
+        # 归一化权重
+        total_weight = sum(objective_weights.values())
+        if total_weight > 0:
+            self.objective_weights = {
+                k: v/total_weight for k, v in objective_weights.items()
             }
-        
-        sim_config = {
-            'unit_positions': unit_positions,
-            'grid_size': layout_config['grid_size'],
-            'material_flow': layout_config['material_flow']
-        }
-        
-        return sim_config
     
-    def _get_mock_simulation_results(
+    def calculate_total_reward(
         self,
-        layout_config: Dict
-    ) -> Dict[str, float]:
+        current_unit_idx: int,
+        run_simulation: bool = False
+    ) -> float:
         """
-        生成模拟仿真结果（用于开发测试）
+        计算总奖励
         
-        基于简单启发式规则估算性能
+        Args:
+            current_unit_idx: 当前放置的单元索引
+            run_simulation: 是否运行仿真
+            
+        Returns:
+            总奖励值 (范围: -1 到 0)
         """
-        placed_units = layout_config['placed_units']
-        material_flow = layout_config.get('material_flow', np.array([]))
+        total_reward = 0.0
         
-        # 简单估算：基于平均运输距离
-        total_distance = 0.0
+        # 1. 运输强度奖励
+        if 'transportation_intensity' in self.objective_weights:
+            r_ti = self._calculate_transportation_intensity_reward(current_unit_idx)
+            total_reward += self.objective_weights['transportation_intensity'] * r_ti
+        
+        # 2. 物料流清晰度奖励
+        if 'material_flow_clarity' in self.objective_weights:
+            r_clarity = self._calculate_clarity_reward(current_unit_idx)
+            total_reward += self.objective_weights['material_flow_clarity'] * r_clarity
+        
+        # 3. 仿真相关奖励（仅在放置完所有单元后计算）
+        if run_simulation and len(self.placed_units) == len(self.functional_units):
+            # 生产周期时间
+            if 'throughput_time' in self.objective_weights:
+                r_tt = self._calculate_throughput_time_reward()
+                total_reward += self.objective_weights['throughput_time'] * r_tt
+            
+            # 功能单元利用率
+            if 'utilization' in self.objective_weights:
+                r_util = self._calculate_utilization_reward()
+                total_reward += self.objective_weights['utilization'] * r_util
+        
+        return total_reward
+    
+    def _calculate_transportation_intensity_reward(
+        self,
+        current_unit_idx: int
+    ) -> float:
+        """
+        计算运输强度奖励（文献公式10-11）
+        
+        R_TI = d_mt / d_mt_max
+        
+        d_mt = sum(distance(mt, j) * flow(mt, j))
+        
+        Returns:
+            奖励值 (-1 到 0)
+        """
+        if current_unit_idx >= len(self.placed_units):
+            return 0.0
+        
+        current_unit_id, x, y, rotation = self.placed_units[current_unit_idx]
+        
+        # 获取当前单元的中心坐标
+        current_center = self._get_unit_center(current_unit_id, x, y, rotation)
+        
+        # 计算与所有已放置单元的运输强度
+        total_intensity = 0.0
+        max_possible_intensity = 0.0
+        
+        for i, (other_id, ox, oy, orot) in enumerate(self.placed_units):
+            if i == current_unit_idx:
+                continue
+            
+            # 获取另一个单元的中心
+            other_center = self._get_unit_center(other_id, ox, oy, orot)
+            
+            # 计算曼哈顿距离（Dijkstra的简化）
+            distance = np.abs(current_center[0] - other_center[0]) + \
+                      np.abs(current_center[1] - other_center[1])
+            
+            # 获取物料流量
+            flow = self.material_flow[current_unit_id, other_id]
+            
+            # 累积运输强度
+            total_intensity += distance * flow
+            
+            # 计算最大可能强度（假设距离为网格对角线）
+            max_distance = np.sqrt(self.layout_grid.shape[0]**2 + 
+                                  self.layout_grid.shape[1]**2)
+            max_possible_intensity += max_distance * flow
+        
+        # 归一化到 [-1, 0]
+        if max_possible_intensity > 0:
+            normalized_intensity = total_intensity / max_possible_intensity
+            reward = -normalized_intensity
+        else:
+            reward = 0.0
+        
+        return reward
+    
+    def _calculate_clarity_reward(self, current_unit_idx: int) -> float:
+        """
+        计算物料流清晰度奖励（文献公式12-15）
+        
+        最佳情况：所有连接的单元排成一条线
+        
+        Returns:
+            奖励值 (-1 到 0)
+        """
+        if current_unit_idx >= len(self.placed_units):
+            return 0.0
+        
+        current_unit_id, x, y, rotation = self.placed_units[current_unit_idx]
+        current_center = self._get_unit_center(current_unit_id, x, y, rotation)
+        
+        # 找到所有与当前单元有物料流的已放置单元
+        connected_units = []
+        for i, (other_id, ox, oy, orot) in enumerate(self.placed_units):
+            if i == current_unit_idx:
+                continue
+            
+            flow = self.material_flow[current_unit_id, other_id]
+            if flow > 0:
+                other_center = self._get_unit_center(other_id, ox, oy, orot)
+                connected_units.append((other_id, other_center, flow))
+        
+        if len(connected_units) == 0:
+            return 0.0
+        
+        # 计算角度偏差
+        total_deviation = 0.0
         total_flow = 0.0
         
-        for i, (id1, x1, y1, _) in enumerate(placed_units):
-            for j, (id2, x2, y2, _) in enumerate(placed_units):
+        for i, (id1, center1, flow1) in enumerate(connected_units):
+            for j, (id2, center2, flow2) in enumerate(connected_units):
                 if i >= j:
                     continue
                 
-                distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+                # 计算两个向量的角度
+                vec1 = np.array(center1) - np.array(current_center)
+                vec2 = np.array(center2) - np.array(current_center)
                 
-                if material_flow.size > 0:
-                    flow = material_flow[id1, id2]
-                    total_distance += distance * flow
-                    total_flow += flow
+                # 角度（弧度）
+                angle1 = np.arctan2(vec1[1], vec1[0])
+                angle2 = np.arctan2(vec2[1], vec2[0])
+                
+                # 角度差（期望180度，即排成一线）
+                angle_diff = np.abs(np.abs(angle1 - angle2) - np.pi)
+                
+                # 加权偏差
+                weight = flow1 * flow2
+                total_deviation += angle_diff * weight
+                total_flow += weight
         
-        avg_distance = total_distance / total_flow if total_flow > 0 else 10.0
+        # 归一化
+        if total_flow > 0:
+            normalized_deviation = total_deviation / (np.pi * total_flow)
+            reward = -normalized_deviation
+        else:
+            reward = 0.0
         
-        # 估算指标（这些值仅用于测试）
-        base_time = 100.0
-        throughput_time = base_time + avg_distance * 2.0
+        return reward
+    
+    def _calculate_throughput_time_reward(self) -> float:
+        """
+        计算生产周期时间奖励（需要仿真）
         
-        metrics = {
-            'throughput_time': throughput_time,
-            'unit_utilization': 0.75 + np.random.uniform(-0.1, 0.1),
-            'mf_utilization': 0.65 + np.random.uniform(-0.1, 0.1),
-            'congestion_time': avg_distance * 0.5,
-            'makespan': throughput_time * 1.2
-        }
+        这里需要调用SimPy仿真接口
+        人员A需要实现与现有仿真的对接
         
-        return metrics
+        Returns:
+            奖励值 (-1 到 0)
+        """
+        # TODO: 集成SimPy仿真
+        # from .simulation_interface import SimulationInterface
+        # sim = SimulationInterface(self.layout_grid, self.placed_units, ...)
+        # throughput_time = sim.run_simulation()
+        # normalized_time = throughput_time / estimated_max_time
+        # return -normalized_time
+        
+        # 暂时返回占位值
+        return 0.0
     
-    def _default_config(self) -> Dict:
-        """默认仿真配置"""
-        return {
-            'simulation_time': 480,     # 8小时
-            'num_replications': 3,      # 3次重复
-            'warm_up_time': 60,         # 1小时预热
-            'random_seed': 42
-        }
+    def _calculate_utilization_reward(self) -> float:
+        """
+        计算功能单元利用率奖励（需要仿真）
+        
+        Returns:
+            奖励值 (-1 到 0)
+        """
+        # TODO: 集成SimPy仿真
+        # utilization = sim.get_utilization()
+        # return -(1 - utilization)  # 利用率越高越好
+        
+        return 0.0
     
-    def _default_production_program(self) -> List[Dict]:
-        """默认生产计划"""
-        return [
-            {'product_id': 'P1', 'quantity': 10, 'priority': 1},
-            {'product_id': 'P2', 'quantity': 8, 'priority': 2},
-            {'product_id': 'P3', 'quantity': 12, 'priority': 1},
-        ]
-
-
-# ====================
-# 集成指南（给人员A的说明）
-# ====================
-"""
-集成步骤：
-
-1. 定位你们的SimPy仿真代码
-   - 找到主仿真类/函数
-   - 了解输入输出格式
-
-2. 修改 run_simulation() 方法
-   - 调用你们的仿真代码
-   - 传递布局配置
-   - 获取仿真结果
-
-3. 修改 _convert_layout_to_simulation_format()
-   - 将RL的布局表示转换为仿真可接受的格式
-   - 可能需要添加距离矩阵、路径等信息
-
-4. 测试
-   - 使用下面的测试代码验证接口
-
-示例：假设你们的仿真代码结构如下
-
-# simulation/factory_simulation.py
-class FactorySimulation:
-    def __init__(self, layout, products):
-        self.layout = layout
-        self.products = products
-    
-    def run(self, time=480):
-        # ... 仿真逻辑
-        return SimulationResults(...)
-
-集成时：
-from simulation.factory_simulation import FactorySimulation
-
-def run_simulation(self, layout_config, production_program=None):
-    sim_layout = self._convert_layout_to_simulation_format(layout_config)
-    sim = FactorySimulation(layout=sim_layout, products=production_program)
-    results = sim.run(time=self.config['simulation_time'])
-    
-    return {
-        'throughput_time': results.avg_throughput,
-        'unit_utilization': results.avg_utilization,
-        ...
-    }
-"""
+    def _get_unit_center(
+        self,
+        unit_id: int,
+        x: int,
+        y: int,
+        rotation: int
+    ) -> Tuple[float, float]:
+        """
+        获取功能单元的中心坐标
+        
+        Args:
+            unit_id: 单元ID
+            x, y: 左下角坐标
+            rotation: 旋转角度
+            
+        Returns:
+            中心坐标 (cx, cy)
+        """
+        unit = self.functional_units[unit_id]
+        width, height = unit['size']
+        
+        # 考虑旋转
+        if rotation in [90, 270]:
+            width, height = height, width
+        
+        center_x = x + width / 2.0
+        center_y = y + height / 2.0
+        
+        return (center_x, center_y)
 
 
 # ====================
 # 测试代码
 # ====================
 if __name__ == "__main__":
-    print("测试仿真接口...")
+    print("测试奖励函数...")
     
-    # 创建接口
-    sim_interface = SimulationInterface()
+    # 模拟数据
+    layout_grid = np.zeros((10, 10))
     
-    # 模拟布局配置
-    layout_config = {
-        'placed_units': [
-            (0, 0, 0, 0),
-            (1, 5, 0, 0),
-            (2, 0, 5, 0),
-        ],
-        'functional_units': [
-            {'id': 0, 'name': 'Machine_A', 'size': (2, 2)},
-            {'id': 1, 'name': 'Machine_B', 'size': (3, 2)},
-            {'id': 2, 'name': 'Machine_C', 'size': (2, 3)},
-        ],
-        'grid_size': (15, 15),
-        'material_flow': np.array([
-            [0, 5, 2],
-            [5, 0, 3],
-            [2, 3, 0]
-        ])
+    functional_units = [
+        {'id': 0, 'size': (2, 2)},
+        {'id': 1, 'size': (3, 2)},
+        {'id': 2, 'size': (2, 3)},
+    ]
+    
+    # 模拟放置
+    placed_units = [
+        (0, 0, 0, 0),    # Unit 0 at (0,0)
+        (1, 5, 0, 0),    # Unit 1 at (5,0)
+        (2, 0, 5, 0),    # Unit 2 at (0,5)
+    ]
+    
+    # 物料流矩阵
+    material_flow = np.array([
+        [0, 5, 2],
+        [5, 0, 3],
+        [2, 3, 0]
+    ])
+    
+    # 目标权重
+    weights = {
+        'transportation_intensity': 0.7,
+        'material_flow_clarity': 0.3
     }
     
-    # 运行仿真（目前是模拟结果）
-    results = sim_interface.run_simulation(layout_config)
+    # 创建计算器
+    calculator = RewardCalculator(
+        layout_grid=layout_grid,
+        placed_units=placed_units,
+        material_flow=material_flow,
+        functional_units=functional_units,
+        objective_weights=weights
+    )
     
-    print("\n仿真结果:")
-    for metric, value in results.items():
-        print(f"  {metric}: {value:.2f}")
+    # 计算奖励
+    for i in range(len(placed_units)):
+        reward = calculator.calculate_total_reward(current_unit_idx=i)
+        print(f"Unit {i} 奖励: {reward:.4f}")
     
     print("\n测试完成!")
-    print("\n提示：人员A需要将此接口与实际SimPy仿真代码对接")
 
