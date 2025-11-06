@@ -8,6 +8,7 @@
 import numpy as np
 from typing import Dict, Tuple, List, Optional
 import copy
+from pathlib import Path
 
 
 class LayoutEnvironment:
@@ -33,7 +34,11 @@ class LayoutEnvironment:
         functional_units: List[Dict] = None,     # 功能单元列表
         material_flow: np.ndarray = None,        # 物料流矩阵
         objective_weights: Dict[str, float] = None,  # 目标权重
-        use_simulation: bool = False             # 是否使用仿真
+        use_simulation: bool = True,            # 是否使用仿真
+        config_path: Optional[str] = None,       # 仿真配置文件路径
+        layout_path: Optional[str] = None,       # 布局输出路径
+        simulation_duration: float = 120000,     # 仿真时长
+        placement_constraints: Optional[Dict] = None  # 摆放约束
     ):
         """
         初始化环境
@@ -55,6 +60,10 @@ class LayoutEnvironment:
                     'material_flow_clarity': 0.2
                 }
             use_simulation: 是否集成SimPy仿真
+            config_path: 仿真配置文件路径
+            layout_path: 布局输出文件路径
+            simulation_duration: 仿真运行时长
+            placement_constraints: 摆放约束规则
         """
         self.grid_size = grid_size
         self.nx, self.ny = grid_size
@@ -75,10 +84,59 @@ class LayoutEnvironment:
             objective_weights = {'transportation_intensity': 1.0}
         self.objective_weights = objective_weights
         
+        # 摆放约束
+        if placement_constraints is None:
+            placement_constraints = {'min_distance': 0, 'wall_units': [], 'restricted_areas': []}
+        self.placement_constraints = placement_constraints
+        
         self.use_simulation = use_simulation
+        self.config_path = config_path
+        self.layout_path = layout_path
+        self.simulation_duration = simulation_duration
+        
+        # 保存布局模板（用于导出）
+        self.layout_template = None
+        if config_path:
+            try:
+                from .config_loader import ConfigLoader
+                loader = ConfigLoader(config_path, layout_path)
+                self.layout_template = loader.get_layout_template()
+            except Exception as e:
+                print(f"警告: 无法加载布局模板: {e}")
         
         # 环境状态
         self.reset()
+    
+    @classmethod
+    def from_config(cls, config_path: str, use_simulation: bool = True, 
+                   simulation_duration: float = 120000) -> 'LayoutEnvironment':
+        """
+        从配置文件创建环境实例
+        
+        Args:
+            config_path: 仿真配置文件路径 (如 'simulation/configs/chair_factory.json')
+            use_simulation: 是否使用仿真计算奖励
+            simulation_duration: 仿真时长
+            
+        Returns:
+            LayoutEnvironment 实例
+        """
+        from .config_loader import ConfigLoader
+        
+        loader = ConfigLoader(config_path)
+        functional_units = loader.get_functional_units()
+        
+        return cls(
+            grid_size=loader.get_factory_size(),
+            functional_units=functional_units,
+            material_flow=loader.get_material_flow(functional_units),
+            objective_weights=loader.get_objective_weights(),
+            placement_constraints=loader.get_placement_constraints(),
+            use_simulation=use_simulation,
+            config_path=config_path,
+            layout_path=str(loader.layout_path),
+            simulation_duration=simulation_duration
+        )
         
     def reset(self) -> Dict:
         """
@@ -201,8 +259,8 @@ class LayoutEnvironment:
         # 已放置单元的mask
         placed_mask = np.zeros(self.num_units, dtype=np.float32)
         for placed_unit in self.placed_units:
-            unit_id = placed_unit[0]
-            placed_mask[unit_id] = 1.0
+            unit_idx = placed_unit[0]  # 现在是索引
+            placed_mask[unit_idx] = 1.0
         
         state = {
             'layout_grid': layout_grid_norm,
@@ -222,7 +280,7 @@ class LayoutEnvironment:
         rotation: int
     ) -> bool:
         """
-        检查动作是否有效
+        检查动作是否有效（包含摆放约束规则）
         
         Args:
             unit: 功能单元配置
@@ -238,7 +296,7 @@ class LayoutEnvironment:
             width, height = height, width
         
         # 检查是否超出边界
-        if x + width > self.nx or y + height > self.ny:
+        if x < 0 or y < 0 or x + width > self.nx or y + height > self.ny:
             return False
         
         # 检查是否与已放置单元或限制区域重叠
@@ -254,6 +312,91 @@ class LayoutEnvironment:
                 if self.restricted_areas[pos_x, pos_y]:
                     return False
         
+        # 检查最小距离约束
+        min_distance = self.placement_constraints.get('min_distance', 0)
+        if min_distance > 0 and not self._check_min_distance(x, y, width, height, min_distance):
+            return False
+        
+        # 检查贴墙约束
+        wall_units = self.placement_constraints.get('wall_units', [])
+        unit_id = unit.get('id', unit.get('name', ''))
+        if unit_id in wall_units and not self._check_wall_constraint(x, y, width, height):
+            return False
+        
+        # 检查禁止区域
+        restricted_areas = self.placement_constraints.get('restricted_areas', [])
+        for rx, ry, rw, rh in restricted_areas:
+            if self._rectangles_overlap(x, y, width, height, rx, ry, rw, rh):
+                return False
+        
+        return True
+    
+    def _check_min_distance(self, x: int, y: int, width: int, height: int, min_dist: int) -> bool:
+        """
+        检查与已放置单元的最小距离
+        
+        Args:
+            x, y: 单元位置
+            width, height: 单元尺寸
+            min_dist: 最小距离
+            
+        Returns:
+            是否满足最小距离约束
+        """
+        # 扩展检查区域
+        check_x_start = max(0, x - min_dist)
+        check_x_end = min(self.nx, x + width + min_dist)
+        check_y_start = max(0, y - min_dist)
+        check_y_end = min(self.ny, y + height + min_dist)
+        
+        # 检查扩展区域内是否有其他单元
+        for cx in range(check_x_start, check_x_end):
+            for cy in range(check_y_start, check_y_end):
+                # 跳过单元自身区域
+                if x <= cx < x + width and y <= cy < y + height:
+                    continue
+                # 检查是否被占用
+                if self.layout_grid[cx, cy] != 0:
+                    return False
+        
+        return True
+    
+    def _check_wall_constraint(self, x: int, y: int, width: int, height: int) -> bool:
+        """
+        检查是否贴墙（至少一边靠边界）
+        
+        Args:
+            x, y: 单元位置
+            width, height: 单元尺寸
+            
+        Returns:
+            是否贴墙
+        """
+        # 检查是否至少有一边贴着工厂边界
+        at_left = (x == 0)
+        at_right = (x + width == self.nx)
+        at_bottom = (y == 0)
+        at_top = (y + height == self.ny)
+        
+        return at_left or at_right or at_bottom or at_top
+    
+    def _rectangles_overlap(self, x1: int, y1: int, w1: int, h1: int,
+                           x2: int, y2: int, w2: int, h2: int) -> bool:
+        """
+        检查两个矩形是否重叠
+        
+        Args:
+            x1, y1, w1, h1: 第一个矩形
+            x2, y2, w2, h2: 第二个矩形
+            
+        Returns:
+            是否重叠
+        """
+        # 检查是否不重叠的条件
+        if x1 + w1 <= x2 or x2 + w2 <= x1:
+            return False
+        if y1 + h1 <= y2 or y2 + h2 <= y1:
+            return False
         return True
     
     def _place_unit(
@@ -271,20 +414,22 @@ class LayoutEnvironment:
             x, y: 左下角位置
             rotation: 旋转角度
         """
-        unit_id = unit['id']
+        unit_id = unit['id']  # 这是字符串ID，如 'rec_dock'
+        unit_idx = self.current_unit_idx  # 这是索引，用于导出
+        
         width, height = unit['size']
         
         # 旋转尺寸
         if rotation in [90, 270]:
             width, height = height, width
         
-        # 在网格中标记
+        # 在网格中标记（使用索引+1）
         for dx in range(width):
             for dy in range(height):
-                self.layout_grid[x + dx, y + dy] = unit_id + 1  # +1避免与0混淆
+                self.layout_grid[x + dx, y + dy] = unit_idx + 1  # +1避免与0混淆
         
-        # 记录放置信息
-        self.placed_units.append((unit_id, x, y, rotation))
+        # 记录放置信息（使用索引，与 layout_exporter 期望一致）
+        self.placed_units.append((unit_idx, x, y, rotation))
     
     def _calculate_reward(self, run_simulation: bool = False) -> float:
         """
@@ -296,25 +441,137 @@ class LayoutEnvironment:
         Returns:
             奖励值 (范围: -1 到 0，越接近0越好)
         """
-        # 这里调用RewardCalculator
-        # 暂时返回简单的运输强度奖励
-        
-        from .reward_function import RewardCalculator
-        
-        calculator = RewardCalculator(
-            layout_grid=self.layout_grid,
-            placed_units=self.placed_units,
-            material_flow=self.material_flow,
-            functional_units=self.functional_units,
-            objective_weights=self.objective_weights
-        )
-        
-        reward = calculator.calculate_total_reward(
-            current_unit_idx=self.current_unit_idx,
-            run_simulation=run_simulation and self.use_simulation
-        )
+        # 如果需要运行仿真（通常是最后一步）
+        if run_simulation and self.use_simulation and self.config_path:
+            reward = self._calculate_reward_with_simulation()
+        else:
+            # 使用静态奖励计算（中间步骤）
+            from .reward_function import RewardCalculator
+            
+            calculator = RewardCalculator(
+                layout_grid=self.layout_grid,
+                placed_units=self.placed_units,
+                material_flow=self.material_flow,
+                functional_units=self.functional_units,
+                objective_weights=self.objective_weights
+            )
+            
+            reward = calculator.calculate_total_reward(
+                current_unit_idx=self.current_unit_idx,
+                run_simulation=False
+            )
         
         return reward
+    
+    def _calculate_reward_with_simulation(self) -> float:
+        """
+        通过仿真计算奖励（仅在 episode 结束时调用）
+        
+        Returns:
+            基于仿真结果的奖励值
+        """
+        try:
+            print(f"\n[仿真] 开始运行仿真系统...")
+            print(f"[仿真] 配置: {self.config_path}")
+            print(f"[仿真] 时长: {self.simulation_duration}")
+            
+            # 1. 导出当前布局到 JSON
+            self._export_current_layout()
+            print(f"[仿真] 布局已导出到: {self.layout_path}")
+            
+            # 2. 运行仿真获取指标
+            from simulation.interface import compute_metrics
+            print(f"[仿真] 正在运行仿真（请稍候）...")
+            
+            metrics_result = compute_metrics(
+                config_path=self.config_path,
+                duration=self.simulation_duration,
+                layout_path=self.layout_path,
+                detail=True
+            )
+            
+            # 3. 从指标中提取奖励
+            summary = metrics_result['summary']
+            static = summary.get('static', {})
+            dynamic = summary.get('dynamic', {})
+            
+            # 提取关键指标（使用正确的字段名）
+            avg_distance = static.get('average_route_distance', 0)
+            total_logistics = static.get('total_logistics_intensity', 0)
+            space_util = static.get('space_utilization', 0)
+            
+            finished_goods = dynamic.get('finished_goods', 0)
+            throughput_rate = dynamic.get('throughput_rate', 0)
+            
+            # 计算平均工位利用率
+            station_util_dict = dynamic.get('station_utilization', {})
+            if station_util_dict:
+                station_utils = [v.get('utilization', 0) for v in station_util_dict.values() if isinstance(v, dict)]
+                avg_station_util = sum(station_utils) / len(station_utils) if station_utils else 0
+            else:
+                avg_station_util = 0
+            
+            print(f"[仿真指标] 平均距离:{avg_distance:.2f}, 物流强度:{total_logistics:.0f}, 空间利用:{space_util:.2%}")
+            print(f"[仿真指标] 完成产品:{finished_goods:.0f}, 吞吐率:{throughput_rate:.6f}, 工位利用率:{avg_station_util:.4f}")
+            
+            # 计算多目标奖励（归一化到 [-1, 0] 范围）
+            # 1. 运输距离越小越好（归一化：假设合理范围 30-100）
+            distance_reward = -(avg_distance - 30) / 70.0  # 30最好=0, 100最差=-1
+            distance_reward = max(distance_reward, -1.0)
+            
+            # 2. 物流强度越小越好（归一化：假设合理范围 1000-3000）
+            logistics_reward = -(total_logistics - 1000) / 2000.0
+            logistics_reward = max(logistics_reward, -1.0)
+            
+            # 3. 空间利用率越高越好（但不要太挤，0.15-0.3为佳）
+            if space_util < 0.15:
+                space_reward = (space_util - 0.15) / 0.15  # 低于15%不好
+            elif space_util > 0.3:
+                space_reward = (0.3 - space_util) / 0.3  # 高于30%太挤
+            else:
+                space_reward = 0.0  # 15-30%之间最好
+            
+            # 4. 吞吐量越大越好（归一化：假设目标100件）
+            throughput_reward = (finished_goods - 100) / 100.0
+            throughput_reward = min(max(throughput_reward, -1.0), 0.0)
+            
+            print(f"[奖励分量] 距离:{distance_reward:.3f}, 物流:{logistics_reward:.3f}, 空间:{space_reward:.3f}, 吞吐:{throughput_reward:.3f}")
+            
+            # 加权求和
+            weights = self.objective_weights
+            reward = (
+                weights.get('transportation_intensity', 0.4) * distance_reward +
+                weights.get('material_flow_clarity', 0.3) * logistics_reward +
+                weights.get('space_utilization', 0.2) * space_reward +
+                weights.get('throughput_time', 0.1) * throughput_reward
+            )
+            
+            # 确保在 [-1, 0] 范围
+            reward = np.clip(reward, -1.0, 0.0)
+            
+            print(f"[最终奖励] {reward:.6f}")
+            
+            return float(reward)
+            
+        except Exception as e:
+            print(f"仿真运行失败: {e}")
+            import traceback
+            traceback.print_exc()
+            # 失败时返回较大的惩罚
+            return -1.0
+    
+    def _export_current_layout(self) -> None:
+        """
+        将当前布局导出到 JSON 文件
+        """
+        if not self.layout_path or not self.layout_template:
+            print("警告: 未配置布局输出路径或模板")
+            return
+        
+        from .layout_exporter import LayoutExporter
+        
+        exporter = LayoutExporter(self.layout_template, self.layout_path)
+        exporter.export_layout(self.placed_units, self.functional_units)
     
     def _create_default_units(self) -> List[Dict]:
         """创建默认功能单元配置（用于测试）"""
@@ -361,8 +618,8 @@ class LayoutEnvironment:
             # 绘制已放置的功能单元
             colors = plt.cm.tab10(np.linspace(0, 1, self.num_units))
             
-            for unit_id, x, y, rotation in self.placed_units:
-                unit = self.functional_units[unit_id]
+            for unit_idx, x, y, rotation in self.placed_units:
+                unit = self.functional_units[unit_idx]
                 width, height = unit['size']
                 
                 # 考虑旋转
@@ -373,7 +630,7 @@ class LayoutEnvironment:
                     (x, y), width, height,
                     linewidth=2,
                     edgecolor='black',
-                    facecolor=colors[unit_id],
+                    facecolor=colors[unit_idx],
                     alpha=0.6
                 )
                 ax.add_patch(rect)
