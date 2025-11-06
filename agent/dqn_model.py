@@ -390,6 +390,295 @@ class LayoutDQN(nn.Module):
 
 
 # ====================
+# Noisy Net 实现
+# ====================
+
+class NoisyLinear(nn.Module):
+    """
+    Noisy Linear Layer - 用于探索的噪声线性层
+    
+    论文: Noisy Networks for Exploration (Fortunato et al., 2017)
+    
+    在权重和偏置中添加可学习的噪声，用于自动探索，
+    无需epsilon-greedy策略。
+    """
+    def __init__(
+        self, 
+        in_features: int, 
+        out_features: int, 
+        sigma_init: float = 0.5
+    ):
+        """
+        初始化Noisy层
+        
+        Args:
+            in_features: 输入维度
+            out_features: 输出维度
+            sigma_init: 噪声参数的初始值
+        """
+        super(NoisyLinear, self).__init__()
+        
+        self.in_features = in_features
+        self.out_features = out_features
+        self.sigma_init = sigma_init
+        
+        # 可学习的权重参数
+        self.weight_mu = nn.Parameter(
+            torch.empty(out_features, in_features)
+        )
+        self.weight_sigma = nn.Parameter(
+            torch.empty(out_features, in_features)
+        )
+        
+        # 可学习的偏置参数
+        self.bias_mu = nn.Parameter(torch.empty(out_features))
+        self.bias_sigma = nn.Parameter(torch.empty(out_features))
+        
+        # 注册噪声缓冲区（不作为参数）
+        self.register_buffer(
+            'weight_epsilon', 
+            torch.empty(out_features, in_features)
+        )
+        self.register_buffer(
+            'bias_epsilon', 
+            torch.empty(out_features)
+        )
+        
+        self.reset_parameters()
+        self.reset_noise()
+    
+    def reset_parameters(self):
+        """初始化参数"""
+        mu_range = 1.0 / np.sqrt(self.in_features)
+        
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.weight_sigma.data.fill_(
+            self.sigma_init / np.sqrt(self.in_features)
+        )
+        
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_sigma.data.fill_(
+            self.sigma_init / np.sqrt(self.out_features)
+        )
+    
+    def reset_noise(self):
+        """重新采样噪声"""
+        epsilon_in = self._scale_noise(self.in_features)
+        epsilon_out = self._scale_noise(self.out_features)
+        
+        # 使用外积生成权重噪声
+        self.weight_epsilon.copy_(
+            epsilon_out.unsqueeze(1) @ epsilon_in.unsqueeze(0)
+        )
+        self.bias_epsilon.copy_(epsilon_out)
+    
+    def _scale_noise(self, size: int) -> torch.Tensor:
+        """
+        生成缩放的噪声
+        使用 f(x) = sgn(x) * sqrt(|x|) 进行缩放
+        """
+        x = torch.randn(size, device=self.weight_mu.device)
+        return x.sign() * x.abs().sqrt()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        前向传播
+        
+        Args:
+            x: 输入张量 [batch, in_features]
+        
+        Returns:
+            输出张量 [batch, out_features]
+        """
+        if self.training:
+            # 训练时使用噪声
+            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        else:
+            # 评估时只使用均值
+            weight = self.weight_mu
+            bias = self.bias_mu
+        
+        return F.linear(x, weight, bias)
+
+
+# ====================
+# 简化的 DQN 接口类（兼容训练代码）
+# ====================
+
+class DQN(nn.Module):
+    """
+    标准 DQN 网络（兼容训练代码）
+    
+    接收扁平化的状态向量，输出Q值
+    
+    Args:
+        input_shape: 输入形状 (state_dim,)
+        num_actions: 动作空间大小
+        hidden_dims: 隐藏层维度列表
+        use_noisy: 是否使用Noisy Net
+    """
+    def __init__(
+        self,
+        input_shape: tuple,
+        num_actions: int,
+        hidden_dims: list = [512, 256],
+        use_noisy: bool = False
+    ):
+        super(DQN, self).__init__()
+        
+        # 展平输入维度
+        if isinstance(input_shape, tuple) and len(input_shape) > 1:
+            input_dim = int(np.prod(input_shape))
+        else:
+            input_dim = input_shape[0] if isinstance(input_shape, tuple) else input_shape
+        
+        self.input_dim = input_dim
+        self.num_actions = num_actions
+        self.use_noisy = use_noisy
+        
+        # 选择线性层类型
+        LinearLayer = NoisyLinear if use_noisy else nn.Linear
+        
+        # 构建网络
+        layers = []
+        prev_dim = input_dim
+        
+        for hidden_dim in hidden_dims:
+            layers.extend([
+                LinearLayer(prev_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.1)
+            ])
+            prev_dim = hidden_dim
+        
+        # 输出层
+        layers.append(LinearLayer(prev_dim, num_actions))
+        
+        self.network = nn.Sequential(*layers)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        前向传播
+        
+        Args:
+            x: 状态张量 [batch, state_dim] 或 [batch, ...]
+        
+        Returns:
+            q_values: Q值 [batch, num_actions]
+        """
+        # 展平输入（如果需要）
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)
+        
+        return self.network(x)
+    
+    def reset_noise(self):
+        """重置Noisy层的噪声（如果使用）"""
+        if self.use_noisy:
+            for module in self.network.modules():
+                if isinstance(module, NoisyLinear):
+                    module.reset_noise()
+
+
+class DuelingDQN(nn.Module):
+    """
+    Dueling DQN 网络（兼容训练代码）
+    
+    将Q值分解为状态价值V(s)和优势函数A(s,a)
+    Q(s,a) = V(s) + (A(s,a) - mean(A(s,a)))
+    
+    Args:
+        input_shape: 输入形状 (state_dim,)
+        num_actions: 动作空间大小
+        hidden_dims: 共享层隐藏维度列表
+        use_noisy: 是否使用Noisy Net
+    """
+    def __init__(
+        self,
+        input_shape: tuple,
+        num_actions: int,
+        hidden_dims: list = [512, 256],
+        use_noisy: bool = False
+    ):
+        super(DuelingDQN, self).__init__()
+        
+        # 展平输入维度
+        if isinstance(input_shape, tuple) and len(input_shape) > 1:
+            input_dim = int(np.prod(input_shape))
+        else:
+            input_dim = input_shape[0] if isinstance(input_shape, tuple) else input_shape
+        
+        self.input_dim = input_dim
+        self.num_actions = num_actions
+        self.use_noisy = use_noisy
+        
+        # 选择线性层类型
+        LinearLayer = NoisyLinear if use_noisy else nn.Linear
+        
+        # 共享特征提取层
+        shared_layers = []
+        prev_dim = input_dim
+        
+        for hidden_dim in hidden_dims:
+            shared_layers.extend([
+                LinearLayer(prev_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.1)
+            ])
+            prev_dim = hidden_dim
+        
+        self.shared = nn.Sequential(*shared_layers)
+        
+        # 价值流 V(s)
+        self.value_stream = nn.Sequential(
+            LinearLayer(prev_dim, prev_dim // 2),
+            nn.ReLU(),
+            LinearLayer(prev_dim // 2, 1)
+        )
+        
+        # 优势流 A(s,a)
+        self.advantage_stream = nn.Sequential(
+            LinearLayer(prev_dim, prev_dim // 2),
+            nn.ReLU(),
+            LinearLayer(prev_dim // 2, num_actions)
+        )
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        前向传播
+        
+        Args:
+            x: 状态张量 [batch, state_dim] 或 [batch, ...]
+        
+        Returns:
+            q_values: Q值 [batch, num_actions]
+        """
+        # 展平输入（如果需要）
+        if x.dim() > 2:
+            x = x.view(x.size(0), -1)
+        
+        # 共享特征
+        features = self.shared(x)
+        
+        # 计算V(s)和A(s,a)
+        value = self.value_stream(features)  # [batch, 1]
+        advantage = self.advantage_stream(features)  # [batch, num_actions]
+        
+        # Q(s,a) = V(s) + (A(s,a) - mean(A(s,a)))
+        q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        
+        return q_values
+    
+    def reset_noise(self):
+        """重置Noisy层的噪声（如果使用）"""
+        if self.use_noisy:
+            for module in self.modules():
+                if isinstance(module, NoisyLinear):
+                    module.reset_noise()
+
+
+# ====================
 # 辅助函数
 # ====================
 
