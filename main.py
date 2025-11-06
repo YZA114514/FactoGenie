@@ -56,6 +56,14 @@ if __name__ == "__main__":
         default=False,
         help="Enable Noisy Net for exploration.",
     )
+    parser.add_argument(
+        "--use_simulation",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="Enable SimPy simulation for reward (slower but more accurate).",
+    )
     
     args = parser.parse_args()
 

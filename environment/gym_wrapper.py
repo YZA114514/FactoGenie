@@ -27,7 +27,7 @@ class FactoryEnv:
     def __init__(
         self,
         config_path: str = "simulation/configs/chair_factory.json",
-        use_simulation: bool = True,
+        use_simulation: bool = False,  # 默认关闭仿真，加速训练
         simulation_duration: float = 120000
     ):
         """

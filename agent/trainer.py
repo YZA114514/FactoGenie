@@ -22,7 +22,10 @@ def train(params):
         device = torch.device("cpu")
         print("Using CPU")
 
-    env = FactoryEnv()
+    # 创建环境（默认不使用仿真以加速训练）
+    env = FactoryEnv(use_simulation=params.use_simulation)
+    print(f"Environment: use_simulation={params.use_simulation}")
+    
     model_cls = DuelingDQN if params.use_dueling else DQN
 
     net = model_cls(

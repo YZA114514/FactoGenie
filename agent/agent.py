@@ -38,9 +38,15 @@ class Agent:
         # 获取有效动作（如果环境支持）
         valid_actions = None
         if hasattr(self.env, 'get_valid_actions'):
-            valid_actions = self.env.get_valid_actions()
-            if len(valid_actions) == 0:
+            try:
+                valid_actions = self.env.get_valid_actions()
+            except Exception as e:
+                print(f"警告: 获取有效动作失败: {e}")
+                valid_actions = None
+            
+            if valid_actions is not None and len(valid_actions) == 0:
                 # 如果没有有效动作，返回一个默认动作（会被环境拒绝）
+                print("警告: 当前状态没有有效动作！返回默认动作0")
                 return 0
         
         if np.random.random() < epsilon:

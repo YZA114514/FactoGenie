@@ -27,6 +27,57 @@ class LayoutExporter:
         """
         self.layout_template = layout_template
         self.output_path = Path(output_path)
+    
+    def _convert_coordinates(
+        self, 
+        env_x: int, 
+        env_y: int, 
+        rotation: int, 
+        original_length: float, 
+        original_width: float
+    ) -> tuple:
+        """
+        将Environment坐标转换为Simulation坐标
+        
+        Environment: (x,y)是实际占用区域的左下角
+        Simulation: (x,y)是旋转前矩形的左下角，通过angle进行顺时针旋转
+        
+        旋转变换（顺时针）：
+        - 0°:   实际占用 [x, x+L) × [y, y+W)
+        - 90°:  实际占用 [x, x+W) × [y-L, y)   → 左下角在 (x, y-L)
+        - 180°: 实际占用 [x-L, x) × [y-W, y)   → 左下角在 (x-L, y-W)
+        - 270°: 实际占用 [x-W, x) × [y, y+L)   → 左下角在 (x-W, y)
+        
+        Args:
+            env_x, env_y: Environment中的坐标（实际占用的左下角）
+            rotation: 旋转角度
+            original_length: 原始长度（未旋转）
+            original_width: 原始宽度（未旋转）
+        
+        Returns:
+            (sim_x, sim_y): Simulation期望的坐标（旋转前矩形的左下角）
+        """
+        if rotation == 0:
+            # 无旋转，坐标相同
+            return env_x, env_y
+        elif rotation == 90:
+            # 旋转90°后，占用区域是 [x, x+W) × [y, y+L)
+            # Simulation旋转后占用 [sx, sx+W) × [sy-L, sy)
+            # 匹配条件：sx=x, sy-L=y → sy=y+L
+            return env_x, env_y + original_length
+        elif rotation == 180:
+            # 旋转180°后，占用区域是 [x, x+L) × [y, y+W)
+            # Simulation旋转后占用 [sx-L, sx) × [sy-W, sy)
+            # 匹配条件：sx-L=x, sy-W=y → sx=x+L, sy=y+W
+            return env_x + original_length, env_y + original_width
+        elif rotation == 270:
+            # 旋转270°后，占用区域是 [x, x+W) × [y, y+L)
+            # Simulation旋转后占用 [sx-W, sx) × [sy, sy+L)
+            # 匹配条件：sx-W=x, sy=y → sx=x+W, sy=y
+            return env_x + original_width, env_y
+        else:
+            # 非标准角度，保持原样
+            return env_x, env_y
         
     def export_layout(
         self, 
@@ -73,18 +124,25 @@ class LayoutExporter:
             # 如果该单元在 fus 列表中，更新其位置
             if unit_id in id_to_fus_idx:
                 fus_idx = id_to_fus_idx[unit_id]
-                fus_list[fus_idx]['x'] = int(x)
-                fus_list[fus_idx]['y'] = int(y)
+                
+                # 获取原始尺寸（未旋转）
+                original_length = fus_list[fus_idx]['length']
+                original_width = fus_list[fus_idx]['width']
+                
+                # 坐标转换：Environment -> Simulation
+                # Environment: (x,y)是实际占用区域的左下角，rotation已应用到尺寸
+                # Simulation: (x,y)是旋转前矩形的左下角，通过angle变换旋转
+                #
+                # 需要调整(x,y)，使得Simulation旋转后得到Environment的占用区域
+                sim_x, sim_y = self._convert_coordinates(
+                    x, y, rotation, original_length, original_width
+                )
+                
+                fus_list[fus_idx]['x'] = int(sim_x)
+                fus_list[fus_idx]['y'] = int(sim_y)
                 fus_list[fus_idx]['angle'] = int(rotation)
                 
-                # 根据旋转更新长宽（如果需要）
-                # 注意：这里假设 simulation 会根据 angle 自动处理旋转
-                # 如果需要交换 length 和 width，可以取消下面的注释
-                # if rotation in [90, 270]:
-                #     original_length = fus_list[fus_idx]['length']
-                #     original_width = fus_list[fus_idx]['width']
-                #     fus_list[fus_idx]['length'] = original_width
-                #     fus_list[fus_idx]['width'] = original_length
+                # 保持原始的length和width不变（Simulation会根据angle旋转）
         
         new_layout['fus'] = fus_list
         
@@ -127,8 +185,16 @@ class LayoutExporter:
             
             if unit_id in id_to_fus_idx:
                 fus_idx = id_to_fus_idx[unit_id]
-                fus_list[fus_idx]['x'] = int(x)
-                fus_list[fus_idx]['y'] = int(y)
+                
+                # 坐标转换
+                original_length = fus_list[fus_idx]['length']
+                original_width = fus_list[fus_idx]['width']
+                sim_x, sim_y = self._convert_coordinates(
+                    x, y, rotation, original_length, original_width
+                )
+                
+                fus_list[fus_idx]['x'] = int(sim_x)
+                fus_list[fus_idx]['y'] = int(sim_y)
                 fus_list[fus_idx]['angle'] = int(rotation)
         
         new_layout['fus'] = fus_list

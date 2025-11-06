@@ -219,6 +219,10 @@ class LayoutEnvironment:
         Returns:
             有效动作列表 [{'x': int, 'y': int, 'rotation': int}, ...]
         """
+        # 检查是否所有单元都已放置
+        if self.current_unit_idx >= self.num_units:
+            return []
+        
         valid_actions = []
         unit = self.functional_units[self.current_unit_idx]
         
@@ -228,12 +232,16 @@ class LayoutEnvironment:
         for x in range(self.nx):
             for y in range(self.ny):
                 for rotation in rotations:
-                    if self._is_valid_action(unit, x, y, rotation):
-                        valid_actions.append({
-                            'x': x, 
-                            'y': y, 
-                            'rotation': rotation
-                        })
+                    try:
+                        if self._is_valid_action(unit, x, y, rotation):
+                            valid_actions.append({
+                                'x': x, 
+                                'y': y, 
+                                'rotation': rotation
+                            })
+                    except (IndexError, ValueError) as e:
+                        # 跳过导致错误的动作
+                        continue
         
         return valid_actions
     
@@ -303,6 +311,10 @@ class LayoutEnvironment:
         for dx in range(width):
             for dy in range(height):
                 pos_x, pos_y = x + dx, y + dy
+                
+                # 双重检查边界（防止索引越界）
+                if pos_x < 0 or pos_x >= self.nx or pos_y < 0 or pos_y >= self.ny:
+                    return False
                 
                 # 检查网格占用
                 if self.layout_grid[pos_x, pos_y] != 0:
