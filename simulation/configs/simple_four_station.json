@@ -1,0 +1,112 @@
+﻿{
+    "initial_inventory":  {
+                              "resource":  {
+                                               "A_raw":  100,
+                                               "B_raw":  100
+                                           }
+                          },
+    "routes":  [
+                   {
+                       "from":  "resource",
+                       "to":  "station1",
+                       "material":  "A_raw",
+                       "batch_size":  5,
+                       "travel_time":  0,
+                       "transporter_id":  "cart_A"
+                   },
+                   {
+                       "from":  "resource",
+                       "to":  "station2",
+                       "material":  "B_raw",
+                       "batch_size":  5,
+                       "travel_time":  0,
+                       "transporter_id":  "cart_B"
+                   },
+                   {
+                       "from":  "station1",
+                       "to":  "station3",
+                       "material":  "A_proc",
+                       "batch_size":  5,
+                       "travel_time":  0,
+                       "transporter_id":  "cart_A"
+                   },
+                   {
+                       "from":  "station2",
+                       "to":  "station3",
+                       "material":  "B_proc",
+                       "batch_size":  5,
+                       "travel_time":  0,
+                       "transporter_id":  "cart_B"
+                   },
+                   {
+                       "from":  "station3",
+                       "to":  "ship",
+                       "material":  "AB_assy",
+                       "batch_size":  2,
+                       "travel_time":  0,
+                       "transporter_id":  "cart_A"
+                   }
+               ],
+    "assemblies":  [
+                       {
+                           "station":  "station1",
+                           "inputs":  {
+                                          "A_raw":  1
+                                      },
+                           "output":  "A_proc",
+                           "process_time":  1.0
+                       },
+                       {
+                           "station":  "station2",
+                           "inputs":  {
+                                          "B_raw":  1
+                                      },
+                           "output":  "B_proc",
+                           "process_time":  1.0
+                       },
+                       {
+                           "station":  "station3",
+                           "inputs":  {
+                                          "A_proc":  1,
+                                          "B_proc":  1
+                                      },
+                           "output":  "AB_assy",
+                           "process_time":  1.5
+                       }
+                   ],
+    "summary":  {
+                    "finished_node":  "ship",
+                    "finished_material":  "AB_assy"
+                },
+    "monitor":  [
+                    {
+                        "node":  "station1",
+                        "material":  "A_proc"
+                    },
+                    {
+                        "node":  "station2",
+                        "material":  "B_proc"
+                    },
+                    {
+                        "node":  "station3",
+                        "material":  "AB_assy"
+                    },
+                    {
+                        "node":  "ship",
+                        "material":  "AB_assy"
+                    }
+                ],
+    "transporters":  [
+                         {
+                             "id":  "cart_A",
+                             "count":  1,
+                             "speed":  1
+                         },
+                         {
+                             "id":  "cart_B",
+                             "count":  1,
+                             "speed":  1
+                         }
+                     ],
+    "layout":  "layouts/simple_four_station.json"
+}
