@@ -1,0 +1,14 @@
+{
+  "factory": {
+    "length": 60,
+    "width": 40,
+    "grid_spacing": 1
+  },
+  "fus": [
+    {"id": "resource", "length": 12, "width": 10, "x": 5, "y": 15, "angle": 0},
+    {"id": "station1", "length": 10, "width": 8, "x": 25, "y": 25, "angle": 0},
+    {"id": "station2", "length": 10, "width": 8, "x": 25, "y": 10, "angle": 0},
+    {"id": "station3", "length": 12, "width": 10, "x": 45, "y": 18, "angle": 0},
+    {"id": "ship", "length": 10, "width": 8, "x": 5, "y": 5, "angle": 0}
+  ]
+}

@@ -1,0 +1,351 @@
+{
+  "factory": {
+    "length": 90,
+    "width": 60,
+    "grid_spacing": 1
+  },
+  "fus": [
+    {
+      "id": "rec_dock",
+      "length": 12,
+      "width": 10,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 19,
+      "y": 0,
+      "angle": 270,
+      "production_rate": 1,
+      "processing_time": 0.0,
+      "buffer_in": {
+        "capacity": 1000,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 1000,
+        "initial": 0
+      }
+    },
+    {
+      "id": "central_store",
+      "length": 18,
+      "width": 12,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 49,
+      "y": 52,
+      "angle": 90,
+      "production_rate": 1,
+      "processing_time": 0.0,
+      "buffer_in": {
+        "capacity": 600,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 600,
+        "initial": 0
+      }
+    },
+    {
+      "id": "station_1",
+      "length": 14,
+      "width": 10,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 26,
+      "y": 52,
+      "angle": 90,
+      "production_rate": 6,
+      "processing_time": 2.5,
+      "buffer_in": {
+        "capacity": 120,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 120,
+        "initial": 0
+      }
+    },
+    {
+      "id": "station_2",
+      "length": 14,
+      "width": 10,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 18,
+      "y": 29,
+      "angle": 90,
+      "production_rate": 6,
+      "processing_time": 2.5,
+      "buffer_in": {
+        "capacity": 120,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 120,
+        "initial": 0
+      }
+    },
+    {
+      "id": "station_3",
+      "length": 14,
+      "width": 10,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 22,
+      "y": 0,
+      "angle": 0,
+      "production_rate": 5,
+      "processing_time": 3.0,
+      "buffer_in": {
+        "capacity": 120,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 120,
+        "initial": 0
+      }
+    },
+    {
+      "id": "station_4",
+      "length": 16,
+      "width": 12,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 54,
+      "y": 26,
+      "angle": 180,
+      "production_rate": 4,
+      "processing_time": 4.0,
+      "buffer_in": {
+        "capacity": 120,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 120,
+        "initial": 0
+      }
+    },
+    {
+      "id": "ship_dock",
+      "length": 16,
+      "width": 12,
+      "notch_length": 0,
+      "notch_width": 0,
+      "x": 16,
+      "y": 45,
+      "angle": 180,
+      "production_rate": 1,
+      "processing_time": 0.0,
+      "buffer_in": {
+        "capacity": 200,
+        "initial": 0
+      },
+      "buffer_out": {
+        "capacity": 200,
+        "initial": 0
+      }
+    }
+  ],
+  "transporters": [
+    {
+      "id": "lift_truck",
+      "speed": 8.0,
+      "capacity": 400,
+      "start_x": 2,
+      "start_y": 52,
+      "route_capacity": {
+        "rec_dock->central_store": 400,
+        "station_4->ship_dock": 20,
+        "default": 200
+      }
+    },
+    {
+      "id": "handcart",
+      "speed": 6.0,
+      "capacity": 120,
+      "start_x": 32,
+      "start_y": 54,
+      "route_capacity": {
+        "central_store->station_1": 100,
+        "central_store->station_2": 20,
+        "central_store->station_3": 50,
+        "station_1->station_3": 20,
+        "default": 50
+      }
+    },
+    {
+      "id": "hand",
+      "speed": 12.0,
+      "capacity": 2,
+      "start_x": 72,
+      "start_y": 32,
+      "route_capacity": {
+        "station_3->station_4": 2,
+        "station_2->station_4": 2,
+        "default": 2
+      }
+    }
+  ],
+  "product_flows": [
+    {
+      "product_id": "cross_braces_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 0.8,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "cross_braces_to_base",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_3"
+      ],
+      "release_interval": 0.8,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "seat_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 1.0,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "seat_to_base",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_3"
+      ],
+      "release_interval": 1.0,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "leg_spindles_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 0.7,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "leg_spindles_to_leg_assy",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_1"
+      ],
+      "release_interval": 0.7,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "foot_hardware_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 0.6,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "foot_hardware_to_leg_assy",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_1"
+      ],
+      "release_interval": 0.6,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "leg_assy_to_base",
+      "quantity": 120,
+      "sequence": [
+        "station_1",
+        "station_3"
+      ],
+      "release_interval": 1.2,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "back_rail_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 1.1,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "back_rail_to_back_assy",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_2"
+      ],
+      "release_interval": 1.1,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "back_spokes_inbound",
+      "quantity": 120,
+      "sequence": [
+        "rec_dock",
+        "central_store"
+      ],
+      "release_interval": 0.9,
+      "transporter_id": "lift_truck"
+    },
+    {
+      "product_id": "back_spokes_to_back_assy",
+      "quantity": 120,
+      "sequence": [
+        "central_store",
+        "station_2"
+      ],
+      "release_interval": 0.9,
+      "transporter_id": "handcart"
+    },
+    {
+      "product_id": "back_assy_to_chair",
+      "quantity": 120,
+      "sequence": [
+        "station_2",
+        "station_4"
+      ],
+      "release_interval": 1.5,
+      "transporter_id": "hand"
+    },
+    {
+      "product_id": "chair_base_to_chair",
+      "quantity": 120,
+      "sequence": [
+        "station_3",
+        "station_4"
+      ],
+      "release_interval": 1.5,
+      "transporter_id": "hand"
+    },
+    {
+      "product_id": "finished_to_ship",
+      "quantity": 120,
+      "sequence": [
+        "station_4",
+        "ship_dock"
+      ],
+      "release_interval": 2.0,
+      "transporter_id": "lift_truck"
+    }
+  ]
+}
