@@ -4,8 +4,7 @@ Gym风格包装器 - 使LayoutEnvironment符合OpenAI Gym接口
 """
 
 import numpy as np
-from typing import Tuple, Optional
-import gym
+from typing import Tuple
 from gym import spaces
 
 from .factory_environment import LayoutEnvironment

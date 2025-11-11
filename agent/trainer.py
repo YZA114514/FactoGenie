@@ -1,4 +1,6 @@
 import csv
+import hashlib
+import re
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
@@ -7,13 +9,11 @@ import torch.optim as optim
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import shutil
 
 from agent.dqn_model import DQN, DuelingDQN
 from agent.agent import Agent, calc_loss_prio
 from agent.replay_buffer import ExperienceBuffer, PrioReplayBuffer
 from environment.gym_wrapper import FactoryEnv
-
 # 导入布局可视化工具
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
@@ -23,12 +23,11 @@ from visualize_layouts import LayoutVisualizer
 def train(params):
     if params.device == "cuda" and torch.cuda.is_available():
         device = torch.device(f"cuda:{params.gpu_id}")
-        print(f"Using GPU: {torch.cuda.get_device_name(params.gpu_id)}")
+        print(f"Using GPU: {device}")
     else:
         device = torch.device("cpu")
         print("Using CPU")
 
-    # 创建环境（默认不使用仿真以加速训练）
     env = FactoryEnv(use_simulation=params.use_simulation)
     print(f"Environment: use_simulation={params.use_simulation}")
     
@@ -53,10 +52,61 @@ def train(params):
 
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
-    reward_log_path = log_dir / "rewards.csv"
-    loss_log_path = log_dir / "losses.csv"
-    reward_plot_path = log_dir / "rewards.png"
-    loss_plot_path = log_dir / "losses.png"
+
+    def format_param_value(value):
+        if isinstance(value, float):
+            formatted = f"{value:.6g}"  # compact scientific/decimal format
+            return formatted.replace("+", "").replace("-", "m").replace(".", "p")
+        return str(value)
+
+    def sanitize_component(text):
+        return re.sub(r"[^0-9A-Za-z_\-]", "_", text)
+
+    alias_pairs = [
+        ("lr", "lr"),
+        ("batch_size", "bs"),
+        ("replay_size", "rs"),
+        ("replay_start_size", "rss"),
+        ("sync_target_frames", "sync"),
+        ("epsilon_decay_last_frame", "edf"),
+        ("epsilon_start", "es"),
+        ("epsilon_final", "ef"),
+        ("use_prior", "prio"),
+        ("use_double", "dbl"),
+        ("use_dueling", "duel"),
+        ("use_noisy", "noisy"),
+        ("use_simulation", "sim"),
+    ]
+
+    run_components = []
+    for param_name, alias in alias_pairs:
+        if not hasattr(params, param_name):
+            continue
+        value = getattr(params, param_name)
+        if isinstance(value, bool):
+            value_token = "1" if value else "0"
+        else:
+            value_token = format_param_value(value)
+        component = sanitize_component(f"{alias}{value_token}")
+        run_components.append(component)
+
+    if not run_components:
+        run_components.append("run")
+
+    run_name = "__".join(run_components)
+    if len(run_name) > 180:
+        digest = hashlib.md5(run_name.encode("utf-8")).hexdigest()[:8]
+        run_name = f"{run_name[:180]}__{digest}"
+
+    run_dir = log_dir / run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Logging outputs to: {run_dir}")
+
+    reward_log_path = run_dir / "rewards.csv"
+    loss_log_path = run_dir / "losses.csv"
+    reward_plot_path = run_dir / "rewards.png"
+    loss_plot_path = run_dir / "losses.png"
 
     reward_file = reward_log_path.open("w", newline="")
     loss_file = loss_log_path.open("w", newline="")
@@ -70,9 +120,10 @@ def train(params):
     loss_fig, loss_ax = plt.subplots()
     
     # 初始化布局可视化工具
-    layout_visualizer = LayoutVisualizer(output_dir=str(log_dir / "layouts"))
+    layout_visualizer = LayoutVisualizer(output_dir=str(run_dir / "layouts"))
+    layout_save_interval = 100
     episode_counter = 0
-    print(f"布局将保存到: {log_dir / 'layouts'}")
+    print(f"布局将保存到: {run_dir / 'layouts'}，每 {layout_save_interval} 次 episode 保存一次")
 
     def update_plot(history, ax, fig, title, xlabel, ylabel, output_path):
         if not history:
@@ -101,24 +152,25 @@ def train(params):
             "Reward",
             reward_plot_path,
         )
-        
-        # 保存布局（每个episode结束时）
-        episode_counter += 1
-        try:
-            layout_path = env.env.layout_path
-            if layout_path and Path(layout_path).exists():
-                # 保存布局JSON副本
-                layout_visualizer.save_layout_json(layout_path, episode_counter)
-                # 生成并保存布局可视化图
-                layout_visualizer.visualize_layout(
-                    layout_path, 
-                    episode_num=episode_counter, 
-                    save=True, 
-                    show=False
-                )
-                print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
-        except Exception as e:
-            print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
+
+        # # 保存布局（按间隔保存）
+        # episode_counter += 1
+        # if episode_counter % layout_save_interval == 0:
+        #     try:
+        #         layout_path = env.env.layout_path
+        #         if layout_path and Path(layout_path).exists():
+        #             # 保存布局JSON副本
+        #             layout_visualizer.save_layout_json(layout_path, episode_counter)
+        #             # 生成并保存布局可视化图
+        #             layout_visualizer.visualize_layout(
+        #                 layout_path,
+        #                 episode_num=episode_counter,
+        #                 save=True,
+        #                 show=False,
+        #             )
+        #             print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
+        #     except Exception as e:
+        #         print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
 
     def log_loss(step, value):
         loss_history.append((step, value))
