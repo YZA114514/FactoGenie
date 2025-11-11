@@ -61,7 +61,7 @@ if __name__ == "__main__":
         type=str2bool,
         nargs="?",
         const=True,
-        default=False,
+        default=True,
         help="Enable SimPy simulation for reward (slower but more accurate).",
     )
     

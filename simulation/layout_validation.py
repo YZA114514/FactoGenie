@@ -8,12 +8,19 @@ from typing import Dict, Iterable, List, Optional, Tuple
 Point = Tuple[float, float]
 
 
+def _snap_trig(value: float, eps: float = 1e-12) -> float:
+    for target in (-1.0, 0.0, 1.0):
+        if abs(value - target) < eps:
+            return target
+    return value
+
+
 def _rotate_clockwise(point: Point, angle_deg: float, origin: Point = (0.0, 0.0)) -> Point:
     ox, oy = origin
     px, py = point
     dx, dy = px - ox, py - oy
     rad = radians(angle_deg)
-    c, s = cos(rad), sin(rad)
+    c, s = _snap_trig(cos(rad)), _snap_trig(sin(rad))
     rx = c * dx + s * dy
     ry = -s * dx + c * dy
     return (rx + ox, ry + oy)
@@ -168,4 +175,3 @@ def validate_layout_data(layout_data: Dict, allow_touching: bool = True) -> List
 
 
 __all__ = ["validate_layout_data"]
-

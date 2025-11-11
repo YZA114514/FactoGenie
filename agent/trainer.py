@@ -7,11 +7,17 @@ import torch.optim as optim
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import shutil
 
 from agent.dqn_model import DQN, DuelingDQN
 from agent.agent import Agent, calc_loss_prio
 from agent.replay_buffer import ExperienceBuffer, PrioReplayBuffer
 from environment.gym_wrapper import FactoryEnv
+
+# 导入布局可视化工具
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from visualize_layouts import LayoutVisualizer
 
 
 def train(params):
@@ -62,6 +68,11 @@ def train(params):
     loss_history = []
     reward_fig, reward_ax = plt.subplots()
     loss_fig, loss_ax = plt.subplots()
+    
+    # 初始化布局可视化工具
+    layout_visualizer = LayoutVisualizer(output_dir=str(log_dir / "layouts"))
+    episode_counter = 0
+    print(f"布局将保存到: {log_dir / 'layouts'}")
 
     def update_plot(history, ax, fig, title, xlabel, ylabel, output_path):
         if not history:
@@ -77,6 +88,7 @@ def train(params):
         fig.savefig(output_path)
 
     def log_reward(step, value):
+        nonlocal episode_counter
         reward_history.append((step, value))
         reward_writer.writerow([step, value])
         reward_file.flush()
@@ -89,6 +101,24 @@ def train(params):
             "Reward",
             reward_plot_path,
         )
+        
+        # 保存布局（每个episode结束时）
+        episode_counter += 1
+        try:
+            layout_path = env.env.layout_path
+            if layout_path and Path(layout_path).exists():
+                # 保存布局JSON副本
+                layout_visualizer.save_layout_json(layout_path, episode_counter)
+                # 生成并保存布局可视化图
+                layout_visualizer.visualize_layout(
+                    layout_path, 
+                    episode_num=episode_counter, 
+                    save=True, 
+                    show=False
+                )
+                print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
+        except Exception as e:
+            print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
 
     def log_loss(step, value):
         loss_history.append((step, value))

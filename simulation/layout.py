@@ -7,6 +7,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon
 
+try:
+    from .geometry_utils import oriented_rectangle, rotated_center
+except ImportError:  # pragma: no cover
+    from geometry_utils import oriented_rectangle, rotated_center  # type: ignore
+
 COLORS = (
     "#1f77b4",
     "#ff7f0e",
@@ -26,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--layout",
         type=Path,
-        default=Path(__file__).resolve().parent / "layouts" / "simple_four_station.json",
+        default=Path(__file__).resolve().parent / "layouts" / "layout_episode_00002.json",
         help="Path to layout JSON file",
     )
     return parser.parse_args()
@@ -42,14 +47,10 @@ def draw_layout(ax, layout_path: Path) -> None:
         width = float(fu.get("width", 0.0))
         x = float(fu.get("x", 0.0))
         y = float(fu.get("y", 0.0))
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
         label = str(fu.get("id", f"FU-{i+1}"))
 
-        poly = [
-            (x, y),
-            (x + length, y),
-            (x + length, y + width),
-            (x, y + width),
-        ]
+        poly = oriented_rectangle(x, y, length, width, angle)
         ax.add_patch(
             MplPolygon(
                 poly,
@@ -60,7 +61,7 @@ def draw_layout(ax, layout_path: Path) -> None:
                 edgecolor="k",
             )
         )
-        center = (x + length / 2, y + width / 2)
+        center = rotated_center(x, y, length, width, angle)
         ax.text(center[0], center[1], label, fontsize=8, ha="center", va="center", color="black")
 
     ax.set_aspect("equal", adjustable="box")

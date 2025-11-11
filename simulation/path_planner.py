@@ -20,15 +20,31 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 try:  # pragma: no cover - package/local import convenience
     from .model import load_config
+    from .geometry_utils import (
+        oriented_rectangle,
+        point_in_polygon,
+        polygon_bounds,
+        rotated_center,
+        min_distance_to_edges,
+    )
 except ImportError:  # pragma: no cover
     import sys
 
     base = Path(__file__).resolve().parent
     sys.path.append(str(base))
     from model import load_config  # type: ignore
+    from geometry_utils import (  # type: ignore
+        oriented_rectangle,
+        point_in_polygon,
+        polygon_bounds,
+        rotated_center,
+        min_distance_to_edges,
+    )
 
 
 GridPoint = Tuple[int, int]
+
+OBSTACLE_MARGIN = 1.0  # grid units to erode FU obstacles for path planning
 
 
 def round_half_up(value: float) -> int:
@@ -51,18 +67,13 @@ def fu_centers(layout_data: Dict) -> Dict[str, GridPoint]:
         y = float(fu.get("y", 0.0))
         length = float(fu.get("length", 0.0))
         width = float(fu.get("width", 0.0))
-        cx = round_half_up(x + length / 2.0)
-        cy = round_half_up(y + width / 2.0)
-        centers[label] = (cx, cy)
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
+        cx, cy = rotated_center(x, y, length, width, angle)
+        centers[label] = (round_half_up(cx), round_half_up(cy))
     return centers
 
 
-def point_in_rect(point: GridPoint, x: float, y: float, length: float, width: float) -> bool:
-    px, py = point
-    return x <= px <= x + length and y <= py <= y + width
-
-
-def obstacle_points(layout_data: Dict, allowed_nodes: Set[str]) -> Set[GridPoint]:
+def obstacle_points(layout_data: Dict, allowed_nodes: Set[str], clearance: float = 0.0) -> Set[GridPoint]:
     obstacles: Set[GridPoint] = set()
     for fu in layout_data.get("fus", []):
         label = str(fu.get("id"))
@@ -72,15 +83,21 @@ def obstacle_points(layout_data: Dict, allowed_nodes: Set[str]) -> Set[GridPoint
         y = float(fu.get("y", 0.0))
         length = float(fu.get("length", 0.0))
         width = float(fu.get("width", 0.0))
-        x_min = math.floor(x)
-        x_max = math.ceil(x + length)
-        y_min = math.floor(y)
-        y_max = math.ceil(y + width)
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
+        poly = oriented_rectangle(x, y, length, width, angle)
+        (min_x, max_x), (min_y, max_y) = polygon_bounds(poly)
+        x_min = math.floor(min_x)
+        x_max = math.ceil(max_x)
+        y_min = math.floor(min_y)
+        y_max = math.ceil(max_y)
         for ix in range(x_min, x_max + 1):
             for iy in range(y_min, y_max + 1):
                 pt = (ix, iy)
-                if point_in_rect(pt, x, y, length, width):
-                    obstacles.add(pt)
+                if not point_in_polygon(pt, poly, include_boundary=True):
+                    continue
+                if clearance > 0.0 and min_distance_to_edges(pt, poly) < clearance:
+                    continue
+                obstacles.add(pt)
     return obstacles
 
 
@@ -171,7 +188,7 @@ def compute_routes(
         grouped.setdefault(transporter_id, []).append((idx, route))
 
     results: List[Dict] = []
-    obstacle_cache: Dict[frozenset[str], Set[GridPoint]] = {}
+    obstacle_cache: Dict[Tuple[frozenset[str], float], Set[GridPoint]] = {}
 
     for transporter_id, entries in grouped.items():
         bounds = ((0, max_x), (0, max_y))
@@ -198,11 +215,12 @@ def compute_routes(
             if start is None or goal is None:
                 raise KeyError(f"Missing layout entry for nodes {from_node} or {to_node}")
             allow_pair = frozenset({from_node, to_node})
-            obstacles = obstacle_cache.get(allow_pair)
+            cache_key = (allow_pair, OBSTACLE_MARGIN)
+            obstacles = obstacle_cache.get(cache_key)
             if obstacles is None:
                 # Build obstacle grid keeping only the current start/goal nodes walkable.
-                obstacles = obstacle_points(layout_data, allow_pair)
-                obstacle_cache[allow_pair] = obstacles
+                obstacles = obstacle_points(layout_data, allow_pair, clearance=OBSTACLE_MARGIN)
+                obstacle_cache[cache_key] = obstacles
             path = shortest_path(start, goal, obstacles, bounds)
             distance = path_length(path)
             travel_time = distance / speed if speed > 0 else distance
@@ -239,7 +257,7 @@ def visualise(
 ) -> None:
     try:
         import matplotlib.pyplot as plt
-        from matplotlib.patches import Rectangle
+        from matplotlib.patches import Polygon as MplPolygon
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("matplotlib is required for visualisation") from exc
 
@@ -290,18 +308,19 @@ def visualise(
         y = float(fu.get("y", 0.0))
         length = float(fu.get("length", 0.0))
         width = float(fu.get("width", 0.0))
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
         face = colors["allowed"] if label in used_nodes else colors["obstacle"]
         ax.add_patch(
-            Rectangle(
-                (x, y),
-                length,
-                width,
+            MplPolygon(
+                oriented_rectangle(x, y, length, width, angle),
+                closed=True,
                 facecolor=face,
                 edgecolor="k",
                 alpha=0.5,
             )
         )
-        ax.text(x + length / 2.0, y + width / 2.0, label, ha="center", va="center")
+        cx, cy = rotated_center(x, y, length, width, angle)
+        ax.text(cx, cy, label, ha="center", va="center")
 
     for entry in filtered_results:
         path = entry["path"]

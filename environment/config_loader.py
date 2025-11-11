@@ -130,20 +130,20 @@ class ConfigLoader:
     
     def get_placement_constraints(self) -> Dict:
         """
-        获取摆放约束规则（可在此基础上扩展）
+        获取摆放约束规则
+        
+        约束规则已简化，现在只在_is_valid_action中直接检查：
+        1. 不超出边界
+        2. 不重叠
+        3. rec_dock和ship_dock必须贴墙
         
         Returns:
-            约束规则字典:
-            {
-                'min_distance': int,          # 功能单元之间的最小距离
-                'wall_units': List[str],      # 必须贴墙的单元ID
-                'restricted_areas': List[Tuple[int, int, int, int]],  # 禁止区域 [(x, y, w, h), ...]
-            }
+            约束规则字典（保留接口兼容性，实际约束在environment中硬编码）
         """
         constraints = {
-            'min_distance': 0,  # 暂时关闭最小距离约束
-            'wall_units': [],   # 暂时关闭贴墙约束（原始布局不满足）
-            'restricted_areas': [],  # 可以手动添加禁止区域
+            'min_distance': 0,  # 已移除此约束
+            'wall_units': ['rec_dock', 'ship_dock'],  # 仅供参考，实际在environment中硬编码
+            'restricted_areas': [],  # 已移除此约束
         }
         
         return constraints

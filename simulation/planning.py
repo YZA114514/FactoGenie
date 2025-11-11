@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 try:
     from .path_planner import compute_routes
     from .layout_validation import validate_layout_data as _validate_layout
+    from .geometry_utils import rotated_center
 except ImportError:  # pragma: no cover
     import sys
 
@@ -14,6 +15,7 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from path_planner import compute_routes  # type: ignore
     from layout_validation import validate_layout_data as _validate_layout  # type: ignore
+    from geometry_utils import rotated_center  # type: ignore
 
 
 def load_layout_data(layout_path: Path) -> Dict:
@@ -54,9 +56,10 @@ def load_layout(layout_path: Path) -> Dict[str, Tuple[float, float]]:
         y = float(item.get('y', 0.0))
         length = float(item.get('length', 0.0))
         width = float(item.get('width', 0.0))
+        angle = float(item.get('angle', item.get('angle_deg', 0.0)))
         label = str(item.get('id'))
         if label:
-            positions[label] = (x + length / 2.0, y + width / 2.0)
+            positions[label] = rotated_center(x, y, length, width, angle)
     return positions
 
 
@@ -73,7 +76,7 @@ def compute_route_plans(
 
     # Prefer the detailed path planner when full layout data is available.
     if layout_data:
-        errors = _validate_layout(layout_data)
+        errors = _validate_layout(layout_data,allow_touching=True)
         if errors:
             raise ValueError("布局几何合法性检查失败:\n" + "\n".join(f"- {msg}" for msg in errors))
         results = compute_routes(

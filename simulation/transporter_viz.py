@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Polygon as MplPolygon
 
 try:  # pragma: no cover - package import convenience
     from .model import build_model, load_config
     from .planning import load_layout, load_layout_data, compute_route_plans
+    from .geometry_utils import oriented_rectangle, rotated_center
 except ImportError:  # pragma: no cover
     import sys
 
@@ -19,6 +20,7 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from model import build_model, load_config  # type: ignore
     from planning import load_layout, load_layout_data, compute_route_plans  # type: ignore
+    from geometry_utils import oriented_rectangle, rotated_center  # type: ignore
 
 
 Task = Dict[str, object]
@@ -178,23 +180,19 @@ def draw_layout(ax, layout_data: Dict, highlighted_nodes: Optional[Iterable[str]
         y = float(fu.get("y", 0.0))
         length = float(fu.get("length", 0.0))
         width = float(fu.get("width", 0.0))
-        rect = Rectangle(
-            (x, y),
-            length,
-            width,
-            facecolor="#8fbcd4" if label in highlighted else "#cccccc",
-            edgecolor="black",
-            alpha=0.5,
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
+        poly = oriented_rectangle(x, y, length, width, angle)
+        ax.add_patch(
+            MplPolygon(
+                poly,
+                closed=True,
+                facecolor="#8fbcd4" if label in highlighted else "#cccccc",
+                edgecolor="black",
+                alpha=0.5,
+            )
         )
-        ax.add_patch(rect)
-        ax.text(
-            x + length / 2.0,
-            y + width / 2.0,
-            label,
-            ha="center",
-            va="center",
-            fontsize=8,
-        )
+        cx, cy = rotated_center(x, y, length, width, angle)
+        ax.text(cx, cy, label, ha="center", va="center", fontsize=8)
     factory = layout_data.get("factory", {})
     ax.set_xlim(0.0, float(factory.get("length", 50.0)))
     ax.set_ylim(0.0, float(factory.get("width", 30.0)))
@@ -332,4 +330,3 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     main()
-

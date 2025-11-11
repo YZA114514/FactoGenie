@@ -176,6 +176,29 @@ class LayoutEnvironment:
             done: 是否结束
             info: 额外信息
         """
+        # 首先检查是否还有有效动作（提前失败机制）
+        valid_actions = self.get_valid_actions()
+        if len(valid_actions) == 0:
+            # 没有有效动作可用，直接结束episode，避免进入仿真
+            print(f"⚠️ 步骤 {self.current_unit_idx + 1}: 没有有效动作，提前结束episode")
+            reward = -10.0  # 严重惩罚，鼓励agent学习避免这种情况
+            done = True
+            
+            # 导出当前布局（即使失败，也要记录）
+            if self.layout_path:
+                try:
+                    self._export_current_layout()
+                except Exception as e:
+                    print(f"  导出失败布局时出错: {e}")
+            
+            info = {
+                'error': 'No valid actions available',
+                'placed_units': len(self.placed_units),
+                'total_units': self.num_units,
+                'early_termination': True
+            }
+            return self._get_state(), reward, done, info
+        
         # 获取当前功能单元
         unit = self.functional_units[self.current_unit_idx]
         
@@ -201,6 +224,13 @@ class LayoutEnvironment:
         # 更新状态
         self.current_unit_idx += 1
         done = (self.current_unit_idx >= self.num_units)
+        
+        # 在episode结束时，即使不使用仿真也导出布局（用于可视化）
+        if done and self.layout_path:
+            try:
+                self._export_current_layout()
+            except Exception as e:
+                print(f"警告: 导出布局失败: {e}")
         
         # 获取下一个状态
         next_state = self._get_state()
@@ -288,57 +318,80 @@ class LayoutEnvironment:
         rotation: int
     ) -> bool:
         """
-        检查动作是否有效（包含摆放约束规则）
+        检查动作是否有效（简化约束规则）
+        
+        坐标系统（与Simulation统一）：
+        - (x, y) 是旋转前矩形的左下角
+        - 旋转方向：顺时针
+        - 原始尺寸：length (长度), width (宽度)
+        
+        约束规则：
+        1. 不超出边界
+        2. 不与已放置单元重叠
+        3. 接收/输出仓库（rec_dock, ship_dock）必须贴墙
         
         Args:
             unit: 功能单元配置
-            x, y: 左下角位置
-            rotation: 旋转角度
+            x, y: 旋转前矩形的左下角位置
+            rotation: 旋转角度（0, 90, 180, 270度，顺时针）
             
         Returns:
             是否有效
         """
-        # 获取旋转后的尺寸
-        width, height = unit['size']
-        if rotation in [90, 270]:
-            width, height = height, width
+        # 获取原始尺寸
+        length, width = unit['size']  # 注意：这里length是第一个维度，width是第二个维度
         
-        # 检查是否超出边界
-        if x < 0 or y < 0 or x + width > self.nx or y + height > self.ny:
+        # 根据旋转角度计算实际占用的网格范围
+        # 顺时针旋转，以(x, y)为旋转前矩形的左下角
+        if rotation == 0:
+            # 无旋转：占用[x, x+length) × [y, y+width)
+            occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
+            # 实际占用区域的边界（用于贴墙检查）
+            actual_x_min, actual_x_max = x, x + length
+            actual_y_min, actual_y_max = y, y + width
+        elif rotation == 90:
+            # 顺时针90°：占用[x, x+width) × [y-length, y)
+            occupied_cells = [(x + dx, y - length + dy) for dx in range(width) for dy in range(length)]
+            actual_x_min, actual_x_max = x, x + width
+            actual_y_min, actual_y_max = y - length, y
+        elif rotation == 180:
+            # 顺时针180°：占用[x-length, x) × [y-width, y)
+            occupied_cells = [(x - length + dx, y - width + dy) for dx in range(length) for dy in range(width)]
+            actual_x_min, actual_x_max = x - length, x
+            actual_y_min, actual_y_max = y - width, y
+        elif rotation == 270:
+            # 顺时针270°：占用[x-width, x) × [y, y+length)
+            occupied_cells = [(x - width + dx, y + dy) for dx in range(width) for dy in range(length)]
+            actual_x_min, actual_x_max = x - width, x
+            actual_y_min, actual_y_max = y, y + length
+        else:
+            # 非标准角度，不支持
             return False
         
-        # 检查是否与已放置单元或限制区域重叠
-        for dx in range(width):
-            for dy in range(height):
-                pos_x, pos_y = x + dx, y + dy
-                
-                # 双重检查边界（防止索引越界）
-                if pos_x < 0 or pos_x >= self.nx or pos_y < 0 or pos_y >= self.ny:
-                    return False
-                
-                # 检查网格占用
-                if self.layout_grid[pos_x, pos_y] != 0:
-                    return False
-                
-                # 检查限制区域
-                if self.restricted_areas[pos_x, pos_y]:
-                    return False
-        
-        # 检查最小距离约束
-        min_distance = self.placement_constraints.get('min_distance', 0)
-        if min_distance > 0 and not self._check_min_distance(x, y, width, height, min_distance):
+        # 1. 检查是否超出边界
+        if actual_x_min < 0 or actual_y_min < 0 or actual_x_max > self.nx or actual_y_max > self.ny:
             return False
         
-        # 检查贴墙约束
-        wall_units = self.placement_constraints.get('wall_units', [])
+        # 2. 检查是否与已放置单元重叠
+        for pos_x, pos_y in occupied_cells:
+            # 双重检查边界（防止索引越界）
+            if pos_x < 0 or pos_x >= self.nx or pos_y < 0 or pos_y >= self.ny:
+                return False
+            
+            # 检查网格占用
+            if self.layout_grid[pos_x, pos_y] != 0:
+                return False
+        
+        # 3. 检查接收/输出仓库的贴墙约束
         unit_id = unit.get('id', unit.get('name', ''))
-        if unit_id in wall_units and not self._check_wall_constraint(x, y, width, height):
-            return False
-        
-        # 检查禁止区域
-        restricted_areas = self.placement_constraints.get('restricted_areas', [])
-        for rx, ry, rw, rh in restricted_areas:
-            if self._rectangles_overlap(x, y, width, height, rx, ry, rw, rh):
+        if unit_id in ['rec_dock', 'ship_dock']:
+            # 这两个单元必须至少有一边贴墙（使用实际占用区域的边界）
+            at_left = (actual_x_min == 0)
+            at_right = (actual_x_max == self.nx)
+            at_bottom = (actual_y_min == 0)
+            at_top = (actual_y_max == self.ny)
+            
+            if not (at_left or at_right or at_bottom or at_top):
                 return False
         
         return True
@@ -421,26 +474,42 @@ class LayoutEnvironment:
         """
         在布局中放置功能单元
         
+        坐标系统（与Simulation统一）：
+        - (x, y) 是旋转前矩形的左下角
+        - 旋转方向：顺时针
+        
         Args:
             unit: 功能单元配置
-            x, y: 左下角位置
-            rotation: 旋转角度
+            x, y: 旋转前矩形的左下角位置
+            rotation: 旋转角度（0, 90, 180, 270度，顺时针）
         """
         unit_id = unit['id']  # 这是字符串ID，如 'rec_dock'
         unit_idx = self.current_unit_idx  # 这是索引，用于导出
         
-        width, height = unit['size']
+        # 获取原始尺寸
+        length, width = unit['size']
         
-        # 旋转尺寸
-        if rotation in [90, 270]:
-            width, height = height, width
+        # 根据旋转角度计算实际占用的网格位置
+        if rotation == 0:
+            # 无旋转：占用[x, x+length) × [y, y+width)
+            occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
+        elif rotation == 90:
+            # 顺时针90°：占用[x, x+width) × [y-length, y)
+            occupied_cells = [(x + dx, y - length + dy) for dx in range(width) for dy in range(length)]
+        elif rotation == 180:
+            # 顺时针180°：占用[x-length, x) × [y-width, y)
+            occupied_cells = [(x - length + dx, y - width + dy) for dx in range(length) for dy in range(width)]
+        elif rotation == 270:
+            # 顺时针270°：占用[x-width, x) × [y, y+length)
+            occupied_cells = [(x - width + dx, y + dy) for dx in range(width) for dy in range(length)]
+        else:
+            occupied_cells = []
         
         # 在网格中标记（使用索引+1）
-        for dx in range(width):
-            for dy in range(height):
-                self.layout_grid[x + dx, y + dy] = unit_idx + 1  # +1避免与0混淆
+        for pos_x, pos_y in occupied_cells:
+            self.layout_grid[pos_x, pos_y] = unit_idx + 1  # +1避免与0混淆
         
-        # 记录放置信息（使用索引，与 layout_exporter 期望一致）
+        # 记录放置信息（直接使用输入坐标，不需要转换）
         self.placed_units.append((unit_idx, x, y, rotation))
     
     def _calculate_reward(self, run_simulation: bool = False) -> float:

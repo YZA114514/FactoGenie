@@ -41,12 +41,13 @@ class Agent:
             try:
                 valid_actions = self.env.get_valid_actions()
             except Exception as e:
-                print(f"警告: 获取有效动作失败: {e}")
+                print(f"⚠️ 警告: 获取有效动作失败: {e}")
                 valid_actions = None
             
             if valid_actions is not None and len(valid_actions) == 0:
-                # 如果没有有效动作，返回一个默认动作（会被环境拒绝）
-                print("警告: 当前状态没有有效动作！返回默认动作0")
+                # 如果没有有效动作，返回默认动作0
+                # 环境的step方法会检测到这种情况并提前结束episode
+                print("⚠️ 当前状态没有有效动作，环境将提前结束episode")
                 return 0
         
         if np.random.random() < epsilon:
