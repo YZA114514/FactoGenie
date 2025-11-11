@@ -221,5 +221,5 @@
                              "speed":  1
                          }
                      ],
-    "layout":  "layouts/chair_layout.json"
+    "layout":  "layouts/layout_episode_00002.json"
 }
