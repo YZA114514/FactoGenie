@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--layout",
         type=Path,
-        default=Path(__file__).resolve().parent / "layouts" / "layout_episode_00002.json",
+        default=Path(__file__).resolve().parent / "layouts" / "chair_layout.json",
         help="Path to layout JSON file",
     )
     return parser.parse_args()

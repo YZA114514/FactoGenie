@@ -29,8 +29,12 @@ def train(params):
         print("Using CPU")
 
     # 创建环境（默认不使用仿真以加速训练）
-    env = FactoryEnv(use_simulation=params.use_simulation)
-    print(f"Environment: use_simulation={params.use_simulation}")
+    simulation_duration = getattr(params, 'simulation_duration', 20000)
+    env = FactoryEnv(
+        use_simulation=params.use_simulation,
+        simulation_duration=simulation_duration
+    )
+    print(f"Environment: use_simulation={params.use_simulation}, simulation_duration={simulation_duration}")
     
     model_cls = DuelingDQN if params.use_dueling else DQN
 

@@ -28,7 +28,7 @@ class FactoryEnv:
         self,
         config_path: str = "simulation/configs/chair_factory.json",
         use_simulation: bool = False,  # 默认关闭仿真，加速训练
-        simulation_duration: float = 120000
+        simulation_duration: float = 20000  # 1天 = 20000时间单位（400个椅子/天）
     ):
         """
         初始化包装器环境
@@ -36,7 +36,7 @@ class FactoryEnv:
         Args:
             config_path: 仿真配置文件路径
             use_simulation: 是否使用仿真计算奖励
-            simulation_duration: 仿真时长
+            simulation_duration: 仿真时长（1天 = 20000时间单位，产能400个椅子/天）
         """
         # 创建底层环境
         self.env = LayoutEnvironment.from_config(

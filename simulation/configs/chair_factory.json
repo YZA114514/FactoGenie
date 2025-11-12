@@ -1,12 +1,12 @@
-﻿{
+{
     "initial_inventory":  {
                               "rec_dock":  {
-                                               "leg_spindle":  400,
-                                               "foot_hardware":  400,
-                                               "seat":  100,
-                                               "cross_brace":  200,
-                                               "back_rail":  100,
-                                               "back_spoke":  300
+                                               "leg_spindle":  1600,
+                                               "foot_hardware":  1600,
+                                               "seat":  400,
+                                               "cross_brace":  800,
+                                               "back_rail":  400,
+                                               "back_spoke":  1200
                                            }
                           },
     "routes":  [
@@ -221,5 +221,5 @@
                              "speed":  1
                          }
                      ],
-    "layout":  "layouts/layout_episode_00002.json"
+    "layout":  "layouts/chair_layout.json"
 }

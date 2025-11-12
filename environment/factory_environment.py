@@ -37,7 +37,7 @@ class LayoutEnvironment:
         use_simulation: bool = True,            # 是否使用仿真
         config_path: Optional[str] = None,       # 仿真配置文件路径
         layout_path: Optional[str] = None,       # 布局输出路径
-        simulation_duration: float = 120000,     # 仿真时长
+        simulation_duration: float = 20000,      # 仿真时长（1天=20000，产能400个/天）
         placement_constraints: Optional[Dict] = None  # 摆放约束
     ):
         """
@@ -109,7 +109,7 @@ class LayoutEnvironment:
     
     @classmethod
     def from_config(cls, config_path: str, use_simulation: bool = True, 
-                   simulation_duration: float = 120000) -> 'LayoutEnvironment':
+                   simulation_duration: float = 20000) -> 'LayoutEnvironment':
         """
         从配置文件创建环境实例
         
@@ -596,35 +596,49 @@ class LayoutEnvironment:
             print(f"[仿真指标] 完成产品:{finished_goods:.0f}, 吞吐率:{throughput_rate:.6f}, 工位利用率:{avg_station_util:.4f}")
             
             # 计算多目标奖励（归一化到 [-1, 0] 范围）
-            # 1. 运输距离越小越好（归一化：假设合理范围 30-100）
-            distance_reward = -(avg_distance - 30) / 70.0  # 30最好=0, 100最差=-1
-            distance_reward = max(distance_reward, -1.0)
+            # 1. 运输距离越小越好（归一化：假设合理范围 20-80）
+            distance_reward = -(avg_distance - 20) / 60.0  # 20最好=0, 80最差=-1
+            distance_reward = np.clip(distance_reward, -1.0, 0.0)
             
-            # 2. 物流强度越小越好（归一化：假设合理范围 1000-3000）
-            logistics_reward = -(total_logistics - 1000) / 2000.0
-            logistics_reward = max(logistics_reward, -1.0)
+            # 2. 物流强度越小越好（归一化：假设合理范围 800-2400）
+            logistics_reward = -(total_logistics - 800) / 1600.0
+            logistics_reward = np.clip(logistics_reward, -1.0, 0.0)
             
-            # 3. 空间利用率越高越好（但不要太挤，0.15-0.3为佳）
-            if space_util < 0.15:
-                space_reward = (space_util - 0.15) / 0.15  # 低于15%不好
-            elif space_util > 0.3:
-                space_reward = (0.3 - space_util) / 0.3  # 高于30%太挤
+            # 3. 物料流清晰度奖励（基于角度偏差，物料流路径直线化）
+            # R_clarity = - Σ(角度偏差 × 流量权重) / (π × 总流量权重)
+            flow_clarity_reward = self._calculate_flow_clarity_reward()
+            flow_clarity_reward = np.clip(flow_clarity_reward, -1.0, 0.0)
+            
+            # 4. 吞吐量奖励（目标400件，允许超额）
+            if finished_goods < 200:
+                throughput_reward = -1.0  # 严重不足（低于50%）
+            elif finished_goods < 400:
+                throughput_reward = (finished_goods - 400) / 200.0  # 线性惩罚
             else:
-                space_reward = 0.0  # 15-30%之间最好
+                # 达到或超过目标，给予奖励（但有上限）
+                throughput_reward = min((finished_goods - 400) / 800.0, 0.0)  # 最多+0分
             
-            # 4. 吞吐量越大越好（归一化：假设目标100件）
-            throughput_reward = (finished_goods - 100) / 100.0
-            throughput_reward = min(max(throughput_reward, -1.0), 0.0)
+            # 5. 工位利用率奖励（新增）
+            if avg_station_util < 0.001:
+                utilization_reward = -1.0  # 几乎不工作
+            elif avg_station_util < 0.05:
+                # 利用率1%-5%范围，鼓励提升
+                utilization_reward = (avg_station_util - 0.05) / 0.05
+            else:
+                # 利用率>5%，逐渐接近0（最好）
+                utilization_reward = min(-0.05 / avg_station_util + 1.0, 0.0)
+            utilization_reward = np.clip(utilization_reward, -1.0, 0.0)
             
-            print(f"[奖励分量] 距离:{distance_reward:.3f}, 物流:{logistics_reward:.3f}, 空间:{space_reward:.3f}, 吞吐:{throughput_reward:.3f}")
+            print(f"[奖励分量] 距离:{distance_reward:.3f}, 物流:{logistics_reward:.3f}, 流清晰:{flow_clarity_reward:.3f}, 吞吐:{throughput_reward:.3f}, 利用率:{utilization_reward:.3f}")
             
-            # 加权求和
+            # 加权求和（增加物流和吞吐权重）
             weights = self.objective_weights
             reward = (
-                weights.get('transportation_intensity', 0.4) * distance_reward +
-                weights.get('material_flow_clarity', 0.3) * logistics_reward +
-                weights.get('space_utilization', 0.2) * space_reward +
-                weights.get('throughput_time', 0.1) * throughput_reward
+                weights.get('transportation_intensity', 0.20) * distance_reward +
+                weights.get('material_flow_clarity', 0.35) * logistics_reward +  # 增加物流权重
+                weights.get('space_utilization', 0.10) * flow_clarity_reward +   # 改为物料流清晰度
+                weights.get('throughput_time', 0.30) * throughput_reward +      # 增加吞吐权重
+                weights.get('utilization', 0.05) * utilization_reward
             )
             
             # 确保在 [-1, 0] 范围
@@ -640,6 +654,116 @@ class LayoutEnvironment:
             traceback.print_exc()
             # 失败时返回较大的惩罚
             return -1.0
+    
+    def _calculate_flow_clarity_reward(self) -> float:
+        """
+        计算物料流清晰度奖励
+        基于角度偏差，评估物料流路径的直线化程度
+        
+        公式: R_clarity = - Σ(角度偏差 × 流量权重) / (π × 总流量权重)
+        理想情况：所有连接的单元排成一条直线（180°）
+        
+        Returns:
+            float: 清晰度奖励 [-1, 0]，0为最优（直线），-1为最差（混乱）
+        """
+        if self.material_flow is None or len(self.placed_units) < 2:
+            return 0.0  # 无物料流或单元太少时给予最好奖励
+        
+        total_deviation = 0.0
+        total_flow_weight = 0.0
+        
+        # 遍历所有已放置的单元
+        for i, placed_unit in enumerate(self.placed_units):
+            unit_idx, x, y, rotation = placed_unit
+            
+            # 获取单元尺寸
+            unit_info = self.functional_units[unit_idx]
+            width, height = unit_info['size']
+            
+            # 根据旋转调整尺寸
+            if rotation in [90, 270]:
+                width, height = height, width
+            
+            current_center = np.array([
+                x + width / 2.0,
+                y + height / 2.0
+            ])
+            
+            # 找到所有与当前单元有物料流的单元
+            connected_units = []
+            for j, other_placed_unit in enumerate(self.placed_units):
+                if i == j:
+                    continue
+                
+                other_unit_idx, other_x, other_y, other_rotation = other_placed_unit
+                
+                # 检查物料流连接（双向）
+                flow1 = self.material_flow[unit_idx, other_unit_idx] if unit_idx < self.material_flow.shape[0] and other_unit_idx < self.material_flow.shape[1] else 0
+                flow2 = self.material_flow[other_unit_idx, unit_idx] if other_unit_idx < self.material_flow.shape[0] and unit_idx < self.material_flow.shape[1] else 0
+                total_flow = flow1 + flow2
+                
+                if total_flow > 0:
+                    # 获取其他单元尺寸
+                    other_unit_info = self.functional_units[other_unit_idx]
+                    other_width, other_height = other_unit_info['size']
+                    
+                    # 根据旋转调整尺寸
+                    if other_rotation in [90, 270]:
+                        other_width, other_height = other_height, other_width
+                    
+                    other_center = np.array([
+                        other_x + other_width / 2.0,
+                        other_y + other_height / 2.0
+                    ])
+                    connected_units.append((j, other_center, total_flow))
+            
+            # 如果连接单元少于2个，无法计算角度偏差
+            if len(connected_units) < 2:
+                continue
+            
+            # 计算所有连接单元对之间的角度偏差
+            for i in range(len(connected_units)):
+                for j in range(i + 1, len(connected_units)):
+                    id1, center1, flow1 = connected_units[i]
+                    id2, center2, flow2 = connected_units[j]
+                    
+                    # 计算两个向量
+                    vec1 = center1 - current_center
+                    vec2 = center2 - current_center
+                    
+                    # 避免零向量
+                    if np.linalg.norm(vec1) < 1e-6 or np.linalg.norm(vec2) < 1e-6:
+                        continue
+                    
+                    # 计算角度
+                    angle1 = np.arctan2(vec1[1], vec1[0])
+                    angle2 = np.arctan2(vec2[1], vec2[0])
+                    
+                    # 角度差（期望180度，即π弧度，排成一线）
+                    angle_diff = abs(angle1 - angle2)
+                    # 将角度差映射到[0, π]范围
+                    if angle_diff > np.pi:
+                        angle_diff = 2 * np.pi - angle_diff
+                    
+                    # 计算与理想角度π的偏差
+                    angle_deviation = abs(angle_diff - np.pi)
+                    
+                    # 流量权重（两个连接的流量乘积）
+                    flow_weight = flow1 * flow2
+                    
+                    # 累积偏差
+                    total_deviation += angle_deviation * flow_weight
+                    total_flow_weight += flow_weight
+        
+        # 归一化到 [-1, 0] 范围
+        if total_flow_weight > 0:
+            # 最大可能偏差是π，所以除以π进行归一化
+            normalized_deviation = total_deviation / (np.pi * total_flow_weight)
+            reward = -min(normalized_deviation, 1.0)  # 确保不超过-1
+        else:
+            reward = 0.0  # 无有效连接时给予最好奖励
+        
+        return reward
     
     def _export_current_layout(self) -> None:
         """

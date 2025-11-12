@@ -64,6 +64,12 @@ if __name__ == "__main__":
         default=True,
         help="Enable SimPy simulation for reward (slower but more accurate).",
     )
+    parser.add_argument(
+        "--simulation_duration",
+        type=float,
+        default=86400,
+        help="Simulation duration in time units (default: 86400 for extended production).",
+    )
     
     args = parser.parse_args()
 
