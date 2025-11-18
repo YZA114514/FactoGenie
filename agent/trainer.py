@@ -108,6 +108,12 @@ def train(params):
 
     print(f"Logging outputs to: {run_dir}")
 
+    # 配置仿真指标日志
+    metrics_log_path = run_dir / "metrics.csv"
+    if hasattr(env, 'env') and hasattr(env.env, 'set_metrics_logger'):
+        env.env.set_metrics_logger(str(metrics_log_path))
+        print(f"Metrics will be logged to: {metrics_log_path}")
+
     reward_log_path = run_dir / "rewards.csv"
     loss_log_path = run_dir / "losses.csv"
     reward_plot_path = run_dir / "rewards.png"
@@ -126,7 +132,7 @@ def train(params):
     
     # 初始化布局可视化工具
     layout_visualizer = LayoutVisualizer(output_dir=str(run_dir / "layouts"))
-    layout_save_interval = 100
+    layout_save_interval = 1
     episode_counter = 0
     print(f"布局将保存到: {run_dir / 'layouts'}，每 {layout_save_interval} 次 episode 保存一次")
 
@@ -158,24 +164,22 @@ def train(params):
             reward_plot_path,
         )
 
-        # # 保存布局（按间隔保存）
-        # episode_counter += 1
-        # if episode_counter % layout_save_interval == 0:
-        #     try:
-        #         layout_path = env.env.layout_path
-        #         if layout_path and Path(layout_path).exists():
-        #             # 保存布局JSON副本
-        #             layout_visualizer.save_layout_json(layout_path, episode_counter)
-        #             # 生成并保存布局可视化图
-        #             layout_visualizer.visualize_layout(
-        #                 layout_path,
-        #                 episode_num=episode_counter,
-        #                 save=True,
-        #                 show=False,
-        #             )
-        #             print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
-        #     except Exception as e:
-        #         print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
+        # 保存布局和可视化
+        episode_counter += 1
+        if episode_counter % layout_save_interval == 0:
+            try:
+                layout_path = getattr(env.env, "layout_path", None)
+                if layout_path and Path(layout_path).exists():
+                    saved_json = layout_visualizer.save_layout_json(layout_path, episode_counter)
+                    layout_visualizer.visualize_layout(
+                        saved_json,
+                        episode_num=episode_counter,
+                        save=True,
+                        show=False,
+                    )
+                    print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
+            except Exception as e:
+                print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
 
     def log_loss(step, value):
         loss_history.append((step, value))
