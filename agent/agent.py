@@ -7,10 +7,17 @@ from agent.replay_buffer import Experience
 GAMMA = 0.99
 
 
+
 class Agent:
-    def __init__(self, env, buffer):
+    def __init__(self, env, buffer, reward_decompose=None, reward_gamma=0.99):
+        """
+        reward_decompose: None（默认，原逻辑），'mean'（平均分配），'discount'（折扣分配）
+        reward_gamma: 折扣分配时的gamma
+        """
         self.env = env
         self.buffer = buffer
+        self.reward_decompose = reward_decompose
+        self.reward_gamma = reward_gamma
         self._reset_episode()
 
     def _reset_episode(self):
@@ -75,33 +82,45 @@ class Agent:
 
     def _resolve_episode_rewards(self, reward_payload, info):
         """
-        奖励分解：将episode的最终奖励分配到各个步骤
-        
-        策略：
-        - 中间步骤：给予小的时间惩罚（鼓励高效放置）
-        - 最后一步：给予最终奖励（来自仿真或启发式计算）
+        奖励分解：支持三种方式
+        - None: 原逻辑（最后一步奖励，其余小惩罚）
+        - 'mean': 平均分配
+        - 'discount': 折扣分配
         """
         num_steps = len(self._episode_transitions)
-        rewards = []
-        
-        # 中间步骤的时间惩罚（可选，鼓励快速完成）
-        step_penalty = -0.01
-        
-        for i in range(num_steps):
-            if i < num_steps - 1:
-                # 中间步骤：小惩罚或0
-                rewards.append(step_penalty)
-            else:
-                # 最后一步：使用最终奖励
-                # reward_payload 应该是最后一步的实际奖励
-                rewards.append(reward_payload)
-        
-        if len(rewards) != num_steps:
-            raise RuntimeError(
-                f"Reward length {len(rewards)} does not match transition count {num_steps}."
-            )
-        
-        return rewards
+        if self.reward_decompose is None:
+            # 原逻辑
+            rewards = []
+            step_penalty = -0.01
+            for i in range(num_steps):
+                if i < num_steps - 1:
+                    rewards.append(step_penalty)
+                else:
+                    rewards.append(reward_payload)
+            if len(rewards) != num_steps:
+                raise RuntimeError(
+                    f"Reward length {len(rewards)} does not match transition count {num_steps}."
+                )
+            return rewards
+        elif self.reward_decompose == 'mean':
+            # 平均分配
+            per_step_reward = reward_payload / num_steps
+            rewards = [per_step_reward] * num_steps
+            return rewards
+        elif self.reward_decompose == 'discount':
+            # 归一化折扣分配，所有步奖励之和等于最终奖励
+            gamma = self.reward_gamma
+            T = num_steps
+            # 先算分母S
+            S = sum([gamma ** k for k in range(T)])
+            rewards = []
+            for i in range(T):
+                # t=0,...,T-1; r_t = gamma**(T-1-i)/S * reward_payload
+                weight = gamma ** (T - 1 - i) / S
+                rewards.append(weight * reward_payload)
+            return rewards
+        else:
+            raise ValueError(f"Unknown reward_decompose mode: {self.reward_decompose}")
 
     def _commit_episode(self, rewards):
         total_reward = 0.0
