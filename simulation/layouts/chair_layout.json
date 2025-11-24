@@ -11,9 +11,11 @@
       "width": 3,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 17,
       "y": 17,
       "angle": 0,
+
       "production_rate": 1,
       "processing_time": 0.0,
       "buffer_in": {
@@ -31,9 +33,11 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 6,
       "y": 13,
       "angle": 0,
+
       "production_rate": 1,
       "processing_time": 0.0,
       "buffer_in": {
@@ -51,8 +55,10 @@
       "width": 3,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 17,
       "y": 6,
+
       "angle": 270,
       "production_rate": 6,
       "processing_time": 2.5,
@@ -71,9 +77,11 @@
       "width": 3,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 12,
       "y": 17,
       "angle": 90,
+
       "production_rate": 6,
       "processing_time": 2.5,
       "buffer_in": {
@@ -91,9 +99,11 @@
       "width": 3,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 21,
       "y": 7,
       "angle": 270,
+
       "production_rate": 5,
       "processing_time": 3.0,
       "buffer_in": {
@@ -111,9 +121,11 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 27,
       "y": 12,
       "angle": 270,
+
       "production_rate": 4,
       "processing_time": 4.0,
       "buffer_in": {
@@ -131,7 +143,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
+
       "x": 5,
+
       "y": 15,
       "angle": 270,
       "production_rate": 1,

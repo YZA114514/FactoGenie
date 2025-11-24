@@ -53,7 +53,12 @@ def train(params):
 
     buffer_cls = PrioReplayBuffer if params.use_prior else ExperienceBuffer
     buffer = buffer_cls(buf_size=params.replay_size)
-    agent = Agent(env, buffer)
+    # 处理奖励分解参数
+    reward_decompose = getattr(params, 'reward_decompose', 'none')
+    if reward_decompose == 'none':
+        reward_decompose = None
+    reward_gamma = getattr(params, 'reward_gamma', 0.9)
+    agent = Agent(env, buffer, reward_decompose=reward_decompose, reward_gamma=reward_gamma)
 
     log_dir = Path("logs")
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -81,6 +86,8 @@ def train(params):
         ("use_dueling", "duel"),
         ("use_noisy", "noisy"),
         ("use_simulation", "sim"),
+        ("reward_decompose", "rdc"),
+        ("reward_gamma", "rg"),
     ]
 
     run_components = []
@@ -132,7 +139,7 @@ def train(params):
     
     # 初始化布局可视化工具
     layout_visualizer = LayoutVisualizer(output_dir=str(run_dir / "layouts"))
-    layout_save_interval = 1
+    layout_save_interval = 400
     episode_counter = 0
     print(f"布局将保存到: {run_dir / 'layouts'}，每 {layout_save_interval} 次 episode 保存一次")
 
@@ -213,8 +220,8 @@ def train(params):
                 reward = agent.play_step(net, epsilon, device=device)
                 if reward is not None:
                     total_rewards.append(reward)
-                    log_reward(frame_idx, reward)
-                    m_reward = np.mean(total_rewards[-100:])
+                    m_reward = np.mean(total_rewards[-200:])
+                    log_reward(frame_idx, m_reward)
                     pbar.set_postfix_str(
                         f"Mean reward: {m_reward:.2f}, Epsilon: {epsilon:.2f}"
                     )
