@@ -79,6 +79,7 @@ def train(params):
         ("replay_start_size", "rss"),
         ("sync_target_frames", "sync"),
         ("epsilon_decay_last_frame", "edf"),
+        ("total_steps", "ts"),
         ("epsilon_start", "es"),
         ("epsilon_final", "ef"),
         ("use_prior", "prio"),
@@ -208,8 +209,8 @@ def train(params):
     best_m_reward = -float("inf")
 
     try:
-        with tqdm(total=params.epsilon_decay_last_frame, desc="Training") as pbar:
-            while frame_idx < params.epsilon_decay_last_frame:
+        with tqdm(total=params.total_steps, desc="Training") as pbar:
+            while frame_idx < params.total_steps:
                 frame_idx += 1
                 pbar.update(1)
 

@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--replay_start_size", type=int, default=5000, help="Replay start size")
     parser.add_argument("--sync_target_frames", type=int, default=2000, help="Sync target network frames")
     parser.add_argument("--epsilon_decay_last_frame", type=int, default=150000, help="Epsilon decay last frame")
+    parser.add_argument("--total_steps", type=int, default=300000, help="Total training steps")
     parser.add_argument("--epsilon_start", type=float, default=1.0, help="Epsilon start value")
     parser.add_argument("--epsilon_final", type=float, default=0.05, help="Epsilon final value")
     parser.add_argument("--device", type=str, default="cpu", help="Device to use for training")
