@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import copy
-import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Set, Tuple
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Polygon as MplPolygon
 
 try:
     from .model import build_model, load_config
     from .planning import load_layout, load_layout_data, compute_route_plans, resolve_layout_path
+    from .visual_utils import draw_layout as draw_layout_base
 except ImportError:  # pragma: no cover
     import sys
 
@@ -22,20 +21,7 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from model import build_model, load_config  # type: ignore
     from planning import load_layout, load_layout_data, compute_route_plans, resolve_layout_path  # type: ignore
-
-COLORS = (
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#d62728",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#17becf",
-)
-
+    from visual_utils import draw_layout as draw_layout_base  # type: ignore
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Animate inventory levels")
@@ -83,34 +69,8 @@ def material_sets(config_data: Dict) -> Tuple[Set[str], Set[str]]:
     return raw, produced
 
 
-def draw_layout(ax, layout_path: Path, routes: Iterable[Dict] = ()) -> Dict[str, Tuple[float, float]]:
-    data = json.load(layout_path.open("r", encoding="utf-8-sig"))
-    factory = data.get("factory", {})
-    fus = data.get("fus", [])
-
-    centers: Dict[str, Tuple[float, float]] = {}
-    for i, fu in enumerate(fus):
-        length = float(fu.get("length", 0.0))
-        width = float(fu.get("width", 0.0))
-        x = float(fu.get("x", 0.0))
-        y = float(fu.get("y", 0.0))
-        label = str(fu.get("id", f"FU-{i+1}"))
-
-        poly = [(x, y), (x + length, y), (x + length, y + width), (x, y + width)]
-        ax.add_patch(
-            MplPolygon(
-                poly,
-                closed=True,
-                fill=True,
-                facecolor=COLORS[i % len(COLORS)],
-                alpha=0.35,
-                edgecolor="k",
-            )
-        )
-        center = (x + length / 2, y + width / 2)
-        centers[label] = center
-        ax.text(center[0], center[1], label, fontsize=8, ha="center", va="center")
-
+def draw_layout(ax, layout_data: Dict, routes: Iterable[Dict] = ()) -> Dict[str, Tuple[float, float]]:
+    centers = draw_layout_base(ax, layout_data)
     for route in routes:
         path_pts = route.get("path_points")
         if not path_pts:
@@ -118,14 +78,6 @@ def draw_layout(ax, layout_path: Path, routes: Iterable[Dict] = ()) -> Dict[str,
         xs = [float(pt[0]) for pt in path_pts]
         ys = [float(pt[1]) for pt in path_pts]
         ax.plot(xs, ys, linestyle="--", color="gray", alpha=0.4)
-
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(0.0, float(factory.get("length", 100)))
-    ax.set_ylim(0.0, float(factory.get("width", 60)))
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.grid(True, linestyle="--", alpha=0.3)
-
     return centers
 
 
@@ -209,7 +161,7 @@ def main() -> None:
     sim.run(until=args.duration)
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    centers = draw_layout(ax, layout_path, config_data.get("routes", []))
+    centers = draw_layout(ax, layout_data, config_data.get("routes", []))
 
     frames = build_time_frames(sim.events, node_labels)
 

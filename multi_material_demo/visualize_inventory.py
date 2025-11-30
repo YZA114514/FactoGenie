@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duration",
         type=float,
-        default=20000.0,
+        default=25000.0,
         help="Simulation horizon",
     )
     return parser.parse_args()

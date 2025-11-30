@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 try:
     from .path_planner import compute_routes
     from .layout_validation import validate_layout_data as _validate_layout
-    from .geometry_utils import rotated_center
+    from .geometry_utils import oriented_rectangle_with_notch, polygon_centroid
 except ImportError:  # pragma: no cover
     import sys
 
@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from path_planner import compute_routes  # type: ignore
     from layout_validation import validate_layout_data as _validate_layout  # type: ignore
-    from geometry_utils import rotated_center  # type: ignore
+    from geometry_utils import oriented_rectangle_with_notch, polygon_centroid  # type: ignore
 
 
 def load_layout_data(layout_path: Path) -> Dict:
@@ -59,7 +59,10 @@ def load_layout(layout_path: Path) -> Dict[str, Tuple[float, float]]:
         angle = float(item.get('angle', item.get('angle_deg', 0.0)))
         label = str(item.get('id'))
         if label:
-            positions[label] = rotated_center(x, y, length, width, angle)
+            notch_l = float(item.get("notch_length", 0.0))
+            notch_w = float(item.get("notch_width", 0.0))
+            poly = oriented_rectangle_with_notch(x, y, length, width, angle, notch_l, notch_w)
+            positions[label] = polygon_centroid(poly)
     return positions
 
 

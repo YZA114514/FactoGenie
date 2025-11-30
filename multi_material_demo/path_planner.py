@@ -2,12 +2,10 @@ from __future__ import annotations
 
 """Compute grid-based shortest paths for transporter routes.
 
-This utility loads a configuration/layout pair, derives rounded integer
-centroids for each functional unit (FU), then computes obstacle-aware shortest
-paths (on a 4-neighbour grid) between node pairs handled by each transporter.
-
-Results can be visualised on top of the layout and optionally written back into
-the configuration under ``path_points`` and ``travel_time``.
+Loads a configuration/layout pair, validates geometry, derives rounded integer
+centroids for each FU, then computes obstacle-aware shortest paths (4-neighbour
+grid) between node pairs handled by each transporter. Results can be visualised
+on top of the layout and optionally written back into the config.
 """
 
 import argparse
@@ -18,15 +16,19 @@ from itertools import combinations, cycle
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+import matplotlib.pyplot as plt
+
 try:  # pragma: no cover - package/local import convenience
     from .model import load_config
     from .geometry_utils import (
-        oriented_rectangle,
+        oriented_rectangle_with_notch,
         point_in_polygon,
         polygon_bounds,
-        rotated_center,
+        polygon_centroid,
         min_distance_to_edges,
     )
+    from .visual_utils import draw_layout
+    from .layout_validation import validate_layout_data as _validate_layout
 except ImportError:  # pragma: no cover
     import sys
 
@@ -34,12 +36,14 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from model import load_config  # type: ignore
     from geometry_utils import (  # type: ignore
-        oriented_rectangle,
+        oriented_rectangle_with_notch,
         point_in_polygon,
         polygon_bounds,
-        rotated_center,
+        polygon_centroid,
         min_distance_to_edges,
     )
+    from visual_utils import draw_layout  # type: ignore
+    from layout_validation import validate_layout_data as _validate_layout  # type: ignore
 
 
 GridPoint = Tuple[int, int]
@@ -68,23 +72,21 @@ def fu_centers(layout_data: Dict) -> Dict[str, GridPoint]:
         length = float(fu.get("length", 0.0))
         width = float(fu.get("width", 0.0))
         angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
-        cx, cy = rotated_center(x, y, length, width, angle)
+        notch_l = float(fu.get("notch_length", 0.0))
+        notch_w = float(fu.get("notch_width", 0.0))
+        poly = oriented_rectangle_with_notch(x, y, length, width, angle, notch_l, notch_w)
+        cx, cy = polygon_centroid(poly)
         centers[label] = (round_half_up(cx), round_half_up(cy))
     return centers
 
 
 def obstacle_points(layout_data: Dict, allowed_nodes: Set[str], clearance: float = 0.0) -> Set[GridPoint]:
+    """Aggregate obstacle cells from other FUs (excluding endpoints) and explicit obstacles."""
+
     obstacles: Set[GridPoint] = set()
-    for fu in layout_data.get("fus", []):
-        label = str(fu.get("id"))
-        if label in allowed_nodes:
-            continue
-        x = float(fu.get("x", 0.0))
-        y = float(fu.get("y", 0.0))
-        length = float(fu.get("length", 0.0))
-        width = float(fu.get("width", 0.0))
-        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
-        poly = oriented_rectangle(x, y, length, width, angle)
+
+    def accumulate_rect(x: float, y: float, length: float, width: float, angle: float, notch_l: float = 0.0, notch_w: float = 0.0) -> None:
+        poly = oriented_rectangle_with_notch(x, y, length, width, angle, notch_l, notch_w)
         (min_x, max_x), (min_y, max_y) = polygon_bounds(poly)
         x_min = math.floor(min_x)
         x_max = math.ceil(max_x)
@@ -98,6 +100,32 @@ def obstacle_points(layout_data: Dict, allowed_nodes: Set[str], clearance: float
                 if clearance > 0.0 and min_distance_to_edges(pt, poly) < clearance:
                     continue
                 obstacles.add(pt)
+
+    for fu in layout_data.get("fus", []):
+        label = str(fu.get("id"))
+        if label in allowed_nodes:
+            continue
+        x = float(fu.get("x", 0.0))
+        y = float(fu.get("y", 0.0))
+        length = float(fu.get("length", 0.0))
+        width = float(fu.get("width", 0.0))
+        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
+        notch_l = float(fu.get("notch_length", 0.0))
+        notch_w = float(fu.get("notch_width", 0.0))
+        accumulate_rect(x, y, length, width, angle, notch_l, notch_w)
+
+    for obs in layout_data.get("obstacles", []):
+        x = float(obs.get("x", 0.0))
+        y = float(obs.get("y", 0.0))
+        length = float(obs.get("length", 0.0))
+        width = float(obs.get("width", 0.0))
+        angle = float(obs.get("angle", obs.get("angle_deg", 0.0)))
+        if length <= 0 or width <= 0:
+            continue
+        notch_l = float(obs.get("notch_length", 0.0))
+        notch_w = float(obs.get("notch_width", 0.0))
+        accumulate_rect(x, y, length, width, angle, notch_l, notch_w)
+
     return obstacles
 
 
@@ -218,7 +246,6 @@ def compute_routes(
             cache_key = (allow_pair, OBSTACLE_MARGIN)
             obstacles = obstacle_cache.get(cache_key)
             if obstacles is None:
-                # Build obstacle grid keeping only the current start/goal nodes walkable.
                 obstacles = obstacle_points(layout_data, allow_pair, clearance=OBSTACLE_MARGIN)
                 obstacle_cache[cache_key] = obstacles
             path = shortest_path(start, goal, obstacles, bounds)
@@ -255,18 +282,7 @@ def visualise(
     results: Iterable[Dict],
     transporter_filter: Optional[str] = None,
 ) -> None:
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Polygon as MplPolygon
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("matplotlib is required for visualisation") from exc
-
     fig, ax = plt.subplots(figsize=(9, 6))
-    colors = {
-        "obstacle": "#cccccc",
-        "allowed": "#8fbcd4",
-    }
-
     filtered_results = [
         entry
         for entry in results
@@ -302,25 +318,7 @@ def visualise(
         used_nodes.add(entry["from"])
         used_nodes.add(entry["to"])
 
-    for fu in layout_data.get("fus", []):
-        label = str(fu.get("id"))
-        x = float(fu.get("x", 0.0))
-        y = float(fu.get("y", 0.0))
-        length = float(fu.get("length", 0.0))
-        width = float(fu.get("width", 0.0))
-        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
-        face = colors["allowed"] if label in used_nodes else colors["obstacle"]
-        ax.add_patch(
-            MplPolygon(
-                oriented_rectangle(x, y, length, width, angle),
-                closed=True,
-                facecolor=face,
-                edgecolor="k",
-                alpha=0.5,
-            )
-        )
-        cx, cy = rotated_center(x, y, length, width, angle)
-        ax.text(cx, cy, label, ha="center", va="center")
+    draw_layout(ax, layout_data, used_nodes=used_nodes, highlight_nodes=used_nodes)
 
     for entry in filtered_results:
         path = entry["path"]
@@ -344,10 +342,6 @@ def visualise(
     ax.set_ylabel("Y")
     ax.grid(True, linestyle="--", alpha=0.3)
     ax.set_title("Transporter shortest paths")
-    handles, labels = ax.get_legend_handles_labels()
-    if labels:
-        unique = dict(zip(labels, handles))
-        ax.legend(unique.values(), unique.keys(), loc="upper right")
     plt.show()
 
 
@@ -417,6 +411,9 @@ def main() -> None:
     config = load_config(args.config)
     layout_path = resolve_layout_path(args.config, config, args.layout)
     layout_data = load_layout_data(layout_path)
+    errors = _validate_layout(layout_data, allow_touching=True)
+    if errors:
+        raise ValueError("布局几何合法性检查失败:\n" + "\n".join(f"- {msg}" for msg in errors))
 
     results = compute_routes(
         config,
