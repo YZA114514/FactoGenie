@@ -147,7 +147,7 @@
                                           "foot_hardware":  1
                                       },
                            "output":  "leg_assy",
-                           "process_time":  2.5
+                           "process_time":  1
                        },
                        {
                            "station":  "station_2",
@@ -156,7 +156,7 @@
                                           "back_spoke":  3
                                       },
                            "output":  "back_assy",
-                           "process_time":  2.0
+                           "process_time":  4
                        },
                        {
                            "station":  "station_3",
@@ -166,7 +166,7 @@
                                           "leg_assy":  4
                                       },
                            "output":  "base",
-                           "process_time":  3.0
+                           "process_time":  4
                        },
                        {
                            "station":  "station_4",
@@ -175,7 +175,7 @@
                                           "back_assy":  1
                                       },
                            "output":  "chair",
-                           "process_time":  2.5
+                           "process_time":  4
                        }
                    ],
     "summary":  {
