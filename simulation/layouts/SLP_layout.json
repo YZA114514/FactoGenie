@@ -14,7 +14,7 @@
     { "id": "ship_dock", "length": 5, "width": 4, "notch_length": 0, "notch_width": 0, "x": 29, "y": 0, "angle": 0 }
   ],
   "obstacles": [
-    { "id": "cafeteria", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 29, "y": 14, "angle": 0 },
+    { "id": "cafeteria", "length": 13, "width": 7, "notch_length": 0, "notch_width": 0, "x": 23, "y": 11, "angle": 0 },
     { "id": "obstacle_2", "length": 6, "width": 4, "notch_length": 0, "notch_width": 0, "x": 30, "y": 5, "angle": 0 }, 
     { "id": "obstacle_3", "length": 6, "width": 4, "notch_length": 0, "notch_width": 0, "x": 23, "y": 5, "angle": 0 },
     { "id": "obstacle_4", "length": 4, "width": 4, "notch_length": 0, "notch_width": 0, "x": 5, "y": 12, "angle": 0 },

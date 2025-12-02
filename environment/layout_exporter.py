@@ -81,14 +81,14 @@ class LayoutExporter:
                     obstacles_list[obs_idx]['angle'] = int(rotation)
             else:
                 # 更新 fus 列表中的位置
-            if unit_id in id_to_fus_idx:
-                fus_idx = id_to_fus_idx[unit_id]
-                # 坐标系统已统一：Environment和Simulation都使用旋转前矩形的左下角
-                # 直接使用Environment的坐标，无需转换
-                fus_list[fus_idx]['x'] = int(x)
-                fus_list[fus_idx]['y'] = int(y)
-                fus_list[fus_idx]['angle'] = int(rotation)
-                # length和width保持不变（Simulation会根据angle旋转）
+                if unit_id in id_to_fus_idx:
+                    fus_idx = id_to_fus_idx[unit_id]
+                    # 坐标系统已统一：Environment和Simulation都使用旋转前矩形的左下角
+                    # 直接使用Environment的坐标，无需转换
+                    fus_list[fus_idx]['x'] = int(x)
+                    fus_list[fus_idx]['y'] = int(y)
+                    fus_list[fus_idx]['angle'] = int(rotation)
+                    # length和width保持不变（Simulation会根据angle旋转）
         
         new_layout['fus'] = fus_list
         new_layout['obstacles'] = obstacles_list
@@ -145,12 +145,12 @@ class LayoutExporter:
                     obstacles_list[obs_idx]['angle'] = int(rotation)
             else:
                 # 更新 fus 列表中的位置
-            if unit_id in id_to_fus_idx:
-                fus_idx = id_to_fus_idx[unit_id]
-                # 坐标系统已统一，直接使用Environment的坐标
-                fus_list[fus_idx]['x'] = int(x)
-                fus_list[fus_idx]['y'] = int(y)
-                fus_list[fus_idx]['angle'] = int(rotation)
+                if unit_id in id_to_fus_idx:
+                    fus_idx = id_to_fus_idx[unit_id]
+                    # 坐标系统已统一，直接使用Environment的坐标
+                    fus_list[fus_idx]['x'] = int(x)
+                    fus_list[fus_idx]['y'] = int(y)
+                    fus_list[fus_idx]['angle'] = int(rotation)
         
         new_layout['fus'] = fus_list
         new_layout['obstacles'] = obstacles_list

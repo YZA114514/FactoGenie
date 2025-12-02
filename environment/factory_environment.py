@@ -404,6 +404,85 @@ class LayoutEnvironment:
         
         return state
     
+    def _get_occupied_cells(
+        self,
+        unit: Dict,
+        x: int,
+        y: int,
+        rotation: int
+    ) -> tuple:
+        """
+        计算功能单元在指定位置和旋转下占用的网格单元（支持缺角）
+        
+        Args:
+            unit: 功能单元配置
+            x, y: 旋转前矩形的左下角位置
+            rotation: 旋转角度（0, 90, 180, 270度，顺时针）
+            
+        Returns:
+            (occupied_cells, actual_bounds):
+                occupied_cells: 占用的网格坐标列表
+                actual_bounds: (x_min, x_max, y_min, y_max) 边界框
+        """
+        length, width = unit['size']
+        notch = unit.get('notch', (0, 0))
+        notch_length, notch_width = notch if notch else (0, 0)
+        
+        # 计算完整矩形的占用单元格和边界
+        if rotation == 0:
+            # 无旋转：占用[x, x+length) × [y, y+width)
+            # 缺角在右上角：[length-notch_length, length) × [0, notch_width)
+            occupied_cells = []
+            for dx in range(length):
+                for dy in range(width):
+                    # 检查是否在缺角区域（右上角，旋转前：x方向靠右，y方向靠下）
+                    in_notch = (notch_length > 0 and notch_width > 0 and
+                               dx >= length - notch_length and dy < notch_width)
+                    if not in_notch:
+                        occupied_cells.append((x + dx, y + dy))
+            bounds = (x, x + length, y, y + width)
+        elif rotation == 90:
+            # 顺时针90°：占用[x, x+width) × [y-length, y)
+            # 缺角旋转到：左下角（原右下角顺时针旋转90°）
+            occupied_cells = []
+            for dx in range(width):
+                for dy in range(length):
+                    # 旋转后的缺角位置：左下角
+                    in_notch = (notch_length > 0 and notch_width > 0 and
+                               dx < notch_width and dy < notch_length)
+                    if not in_notch:
+                        occupied_cells.append((x + dx, y - length + dy))
+            bounds = (x, x + width, y - length, y)
+        elif rotation == 180:
+            # 顺时针180°：占用[x-length, x) × [y-width, y)
+            # 缺角旋转到：左下角
+            occupied_cells = []
+            for dx in range(length):
+                for dy in range(width):
+                    # 旋转后的缺角位置
+                    in_notch = (notch_length > 0 and notch_width > 0 and
+                               dx < notch_length and dy >= width - notch_width)
+                    if not in_notch:
+                        occupied_cells.append((x - length + dx, y - width + dy))
+            bounds = (x - length, x, y - width, y)
+        elif rotation == 270:
+            # 顺时针270°：占用[x-width, x) × [y, y+length)
+            # 缺角旋转到：右上角（原右下角顺时针旋转270°）
+            occupied_cells = []
+            for dx in range(width):
+                for dy in range(length):
+                    # 旋转后的缺角位置：右上角
+                    in_notch = (notch_length > 0 and notch_width > 0 and
+                               dx >= width - notch_width and dy >= length - notch_length)
+                    if not in_notch:
+                        occupied_cells.append((x - width + dx, y + dy))
+            bounds = (x - width, x, y, y + length)
+        else:
+            occupied_cells = []
+            bounds = (x, x, y, y)
+        
+        return occupied_cells, bounds
+    
     def _is_valid_action(
         self, 
         unit: Dict, 
@@ -412,7 +491,7 @@ class LayoutEnvironment:
         rotation: int
     ) -> bool:
         """
-        检查动作是否有效（简化约束规则）
+        检查动作是否有效（使用网格碰撞检测）
         
         坐标系统（与Simulation统一）：
         - (x, y) 是旋转前矩形的左下角
@@ -421,7 +500,7 @@ class LayoutEnvironment:
         
         约束规则：
         1. 不超出边界
-        2. 不与已放置单元重叠
+        2. 不与已放置单元重叠（网格检测）
         3. 接收/输出仓库（rec_dock, ship_dock）必须贴墙
         
         Args:
@@ -432,33 +511,11 @@ class LayoutEnvironment:
         Returns:
             是否有效
         """
-        # 获取原始尺寸
-        length, width = unit['size']  # 注意：这里length是第一个维度，width是第二个维度
+        # 获取占用单元格和边界（支持缺角）
+        occupied_cells, bounds = self._get_occupied_cells(unit, x, y, rotation)
+        actual_x_min, actual_x_max, actual_y_min, actual_y_max = bounds
         
-        # 根据旋转角度计算实际占用的网格范围
-        # 顺时针旋转，以(x, y)为旋转前矩形的左下角
-        if rotation == 0:
-            # 无旋转：占用[x, x+length) × [y, y+width)
-            occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
-            # 实际占用区域的边界（用于贴墙检查）
-            actual_x_min, actual_x_max = x, x + length
-            actual_y_min, actual_y_max = y, y + width
-        elif rotation == 90:
-            # 顺时针90°：占用[x, x+width) × [y-length, y)
-            occupied_cells = [(x + dx, y - length + dy) for dx in range(width) for dy in range(length)]
-            actual_x_min, actual_x_max = x, x + width
-            actual_y_min, actual_y_max = y - length, y
-        elif rotation == 180:
-            # 顺时针180°：占用[x-length, x) × [y-width, y)
-            occupied_cells = [(x - length + dx, y - width + dy) for dx in range(length) for dy in range(width)]
-            actual_x_min, actual_x_max = x - length, x
-            actual_y_min, actual_y_max = y - width, y
-        elif rotation == 270:
-            # 顺时针270°：占用[x-width, x) × [y, y+length)
-            occupied_cells = [(x - width + dx, y + dy) for dx in range(width) for dy in range(length)]
-            actual_x_min, actual_x_max = x - width, x
-            actual_y_min, actual_y_max = y, y + length
-        else:
+        if not occupied_cells:
             # 非标准角度，不支持
             return False
         
@@ -466,13 +523,13 @@ class LayoutEnvironment:
         if actual_x_min < 0 or actual_y_min < 0 or actual_x_max > self.nx or actual_y_max > self.ny:
             return False
         
-        # 2. 检查是否与已放置单元重叠
+        # 2. 检查是否与已放置单元重叠（网格检测）
         for pos_x, pos_y in occupied_cells:
             # 双重检查边界（防止索引越界）
             if pos_x < 0 or pos_x >= self.nx or pos_y < 0 or pos_y >= self.ny:
                 return False
             
-            # 检查网格占用
+            # 检查网格占用（0=空，>0=已放置单元，-1=固定障碍物）
             if self.layout_grid[pos_x, pos_y] != 0:
                 return False
         
@@ -566,7 +623,7 @@ class LayoutEnvironment:
         rotation: int
     ) -> None:
         """
-        在布局中放置功能单元
+        在布局中放置功能单元（支持缺角）
         
         坐标系统（与Simulation统一）：
         - (x, y) 是旋转前矩形的左下角
@@ -577,27 +634,10 @@ class LayoutEnvironment:
             x, y: 旋转前矩形的左下角位置
             rotation: 旋转角度（0, 90, 180, 270度，顺时针）
         """
-        unit_id = unit['id']  # 这是字符串ID，如 'rec_dock'
         unit_idx = self.current_unit_idx  # 这是索引，用于导出
         
-        # 获取原始尺寸
-        length, width = unit['size']
-        
-        # 根据旋转角度计算实际占用的网格位置
-        if rotation == 0:
-            # 无旋转：占用[x, x+length) × [y, y+width)
-            occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
-        elif rotation == 90:
-            # 顺时针90°：占用[x, x+width) × [y-length, y)
-            occupied_cells = [(x + dx, y - length + dy) for dx in range(width) for dy in range(length)]
-        elif rotation == 180:
-            # 顺时针180°：占用[x-length, x) × [y-width, y)
-            occupied_cells = [(x - length + dx, y - width + dy) for dx in range(length) for dy in range(width)]
-        elif rotation == 270:
-            # 顺时针270°：占用[x-width, x) × [y, y+length)
-            occupied_cells = [(x - width + dx, y + dy) for dx in range(width) for dy in range(length)]
-        else:
-            occupied_cells = []
+        # 使用统一的方法获取占用单元格（支持缺角）
+        occupied_cells, _ = self._get_occupied_cells(unit, x, y, rotation)
         
         # 在网格中标记（使用索引+1）
         for pos_x, pos_y in occupied_cells:

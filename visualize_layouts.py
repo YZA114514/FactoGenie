@@ -1,13 +1,63 @@
 """
 可视化和记录每个episode的布局
+支持：功能单元(fus)、障碍物(obstacles)、缺角(notch)
 """
 
 import json
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from pathlib import Path
 from datetime import datetime
+
+def _rotate_point(px, py, angle_deg, ox=0, oy=0):
+    """顺时针旋转点 (px, py) 绕 (ox, oy)"""
+    rad = math.radians(angle_deg)
+    cos_a = math.cos(rad)
+    sin_a = math.sin(rad)
+    dx, dy = px - ox, py - oy
+    rx = cos_a * dx + sin_a * dy
+    ry = -sin_a * dx + cos_a * dy
+    return ox + rx, oy + ry
+
+def _get_polygon_vertices(x, y, length, width, angle, notch_length=0, notch_width=0):
+    """
+    计算带缺角的矩形多边形顶点
+    
+    缺角位置：右上角（旋转前）
+    坐标系：(x, y) 是旋转前矩形的左下角
+    """
+    notch_length = notch_length or 0
+    notch_width = notch_width or 0
+    
+    # 构建基础多边形（局部坐标，左下角在原点）
+    if notch_length > 0 and notch_width > 0:
+        # L形多边形（右上角有缺口）
+        base = [
+            (0, 0),                              # 左下角
+            (length - notch_length, 0),          # 缺口左下
+            (length - notch_length, notch_width), # 缺口左上
+            (length, notch_width),               # 缺口右下
+            (length, width),                     # 右上角
+            (0, width),                          # 左上角
+        ]
+    else:
+        # 普通矩形
+        base = [
+            (0, 0),
+            (length, 0),
+            (length, width),
+            (0, width),
+        ]
+    
+    # 旋转并平移到世界坐标
+    vertices = []
+    for px, py in base:
+        rx, ry = _rotate_point(px, py, angle, 0, 0)
+        vertices.append((x + rx, y + ry))
+    
+    return vertices
 
 class LayoutVisualizer:
     """布局可视化工具"""
@@ -34,6 +84,7 @@ class LayoutVisualizer:
         factory_length = factory.get('length', 100)
         factory_width = factory.get('width', 100)
         fus = layout_data.get('fus', [])
+        obstacles = layout_data.get('obstacles', [])
         
         # 创建图形
         fig, ax = plt.subplots(1, 1, figsize=(14, 10))
@@ -45,10 +96,10 @@ class LayoutVisualizer:
         )
         ax.add_patch(factory_rect)
         
-        # 颜色列表
-        colors = plt.cm.Set3(np.linspace(0, 1, len(fus)))
+        # 颜色列表（为 fus 分配颜色）
+        colors = plt.cm.Set3(np.linspace(0, 1, max(len(fus), 1)))
         
-        # 绘制每个功能单元
+        # 绘制每个功能单元（支持缺角）
         for idx, fu in enumerate(fus):
             fu_id = fu.get('id', f'FU-{idx}')
             x = fu.get('x', 0)
@@ -56,39 +107,11 @@ class LayoutVisualizer:
             length = fu.get('length', 0)
             width = fu.get('width', 0)
             angle = fu.get('angle', 0)
+            notch_length = fu.get('notch_length', 0)
+            notch_width = fu.get('notch_width', 0)
             
-            # 计算旋转后的顶点
-            if angle == 0:
-                vertices = [
-                    (x, y),
-                    (x + length, y),
-                    (x + length, y + width),
-                    (x, y + width)
-                ]
-            elif angle == 90:
-                vertices = [
-                    (x, y),
-                    (x + width, y),
-                    (x + width, y - length),
-                    (x, y - length)
-                ]
-            elif angle == 180:
-                vertices = [
-                    (x, y),
-                    (x - length, y),
-                    (x - length, y - width),
-                    (x, y - width)
-                ]
-            elif angle == 270:
-                vertices = [
-                    (x, y),
-                    (x - width, y),
-                    (x - width, y + length),
-                    (x, y + length)
-                ]
-            else:
-                # 非标准角度，画矩形
-                vertices = [(x, y), (x + length, y), (x + length, y + width), (x, y + width)]
+            # 计算多边形顶点（支持缺角）
+            vertices = _get_polygon_vertices(x, y, length, width, angle, notch_length, notch_width)
             
             # 绘制多边形
             poly = patches.Polygon(
@@ -127,6 +150,45 @@ class LayoutVisualizer:
             # 标记参考点(x,y)
             ax.plot(x, y, 'ro', markersize=4, zorder=4)
         
+        # 绘制障碍物
+        for obs in obstacles:
+            obs_id = obs.get('id', '')
+            x = obs.get('x', 0)
+            y = obs.get('y', 0)
+            length = obs.get('length', 0)
+            width = obs.get('width', 0)
+            angle = obs.get('angle', 0)
+            notch_length = obs.get('notch_length', 0)
+            notch_width = obs.get('notch_width', 0)
+            
+            # 计算多边形顶点
+            vertices = _get_polygon_vertices(x, y, length, width, angle, notch_length, notch_width)
+            
+            # 绘制障碍物（灰色，带斜线填充）
+            poly = patches.Polygon(
+                vertices,
+                closed=True,
+                edgecolor='black',
+                facecolor='#9a9a9a',
+                alpha=0.6,
+                linewidth=1.5,
+                hatch='///',
+                zorder=2
+            )
+            ax.add_patch(poly)
+            
+            # 添加标签
+            if obs_id:
+                center_x = np.mean([v[0] for v in vertices])
+                center_y = np.mean([v[1] for v in vertices])
+                ax.text(
+                    center_x, center_y, obs_id,
+                    ha='center', va='center',
+                    fontsize=8, fontweight='bold',
+                    color='black',
+                    zorder=3
+                )
+        
         # 设置坐标轴
         ax.set_xlim(-5, factory_length + 5)
         ax.set_ylim(-5, factory_width + 5)
@@ -143,7 +205,7 @@ class LayoutVisualizer:
         
         # 添加图例
         legend_text = f'Factory: {factory_length}m × {factory_width}m\n'
-        legend_text += f'Units: {len(fus)}'
+        legend_text += f'FUs: {len(fus)}, Obstacles: {len(obstacles)}'
         ax.text(
             0.02, 0.98, legend_text,
             transform=ax.transAxes,

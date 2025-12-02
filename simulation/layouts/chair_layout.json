@@ -11,19 +11,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 16,
-      "y": 16,
-      "angle": 270,
-      "production_rate": 1,
-      "processing_time": 0.0,
-      "buffer_in": {
-        "capacity": 1000,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 1000,
-        "initial": 0
-      }
+      "x": 25,
+      "y": 4,
+      "angle": 180
     },
     {
       "id": "central_store",
@@ -31,19 +21,9 @@
       "width": 6,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 11,
+      "x": 20,
       "y": 10,
-      "angle": 0,
-      "production_rate": 1,
-      "processing_time": 0.0,
-      "buffer_in": {
-        "capacity": 600,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 600,
-        "initial": 0
-      }
+      "angle": 180
     },
     {
       "id": "station_1",
@@ -51,19 +31,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 10,
-      "y": 7,
-      "angle": 0,
-      "production_rate": 6,
-      "processing_time": 2.5,
-      "buffer_in": {
-        "capacity": 120,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 120,
-        "initial": 0
-      }
+      "x": 8,
+      "y": 11,
+      "angle": 180
     },
     {
       "id": "station_2",
@@ -71,19 +41,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 17,
-      "y": 10,
-      "angle": 0,
-      "production_rate": 6,
-      "processing_time": 2.5,
-      "buffer_in": {
-        "capacity": 120,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 120,
-        "initial": 0
-      }
+      "x": 23,
+      "y": 14,
+      "angle": 180
     },
     {
       "id": "station_3",
@@ -91,39 +51,19 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 14,
-      "y": 9,
-      "angle": 90,
-      "production_rate": 5,
-      "processing_time": 3.0,
-      "buffer_in": {
-        "capacity": 120,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 120,
-        "initial": 0
-      }
+      "x": 15,
+      "y": 14,
+      "angle": 180
     },
     {
       "id": "station_4",
-      "length": 5,
-      "width": 4,
-      "notch_length": 0,
-      "notch_width": 0,
-      "x": 17,
-      "y": 5,
-      "angle": 0,
-      "production_rate": 4,
-      "processing_time": 4.0,
-      "buffer_in": {
-        "capacity": 120,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 120,
-        "initial": 0
-      }
+      "length": 8,
+      "width": 8,
+      "notch_length": 4,
+      "notch_width": 4,
+      "x": 33,
+      "y": 3,
+      "angle": 270
     },
     {
       "id": "ship_dock",
@@ -131,70 +71,20 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 22,
-      "y": 4,
-      "angle": 180,
-      "production_rate": 1,
-      "processing_time": 0.0,
-      "buffer_in": {
-        "capacity": 200,
-        "initial": 0
-      },
-      "buffer_out": {
-        "capacity": 200,
-        "initial": 0
-      }
-    }
-  ],
-  "transporters": [
-    {
-      "id": "lift_truck",
-      "speed": 8.0,
-      "capacity": 400,
-      "start_x": 0,
-      "start_y": 17,
-      "route_capacity": {
-        "rec_dock->central_store": 400,
-        "station_4->ship_dock": 20,
-        "default": 200
-      }
-    },
-    {
-      "id": "handcart",
-      "speed": 6.0,
-      "capacity": 120,
-      "start_x": 10,
-      "start_y": 18,
-      "route_capacity": {
-        "central_store->station_1": 100,
-        "central_store->station_2": 20,
-        "central_store->station_3": 50,
-        "station_1->station_3": 20,
-        "default": 50
-      }
-    },
-    {
-      "id": "hand",
-      "speed": 12.0,
-      "capacity": 2,
-      "start_x": 24,
-      "start_y": 10,
-      "route_capacity": {
-        "station_3->station_4": 2,
-        "station_2->station_4": 2,
-        "default": 2
-      }
+      "x": 0,
+      "y": 16,
+      "angle": 90
     }
   ],
   "obstacles": [
     {
       "id": "cafeteria",
-      "length": 7,
-      "width": 4,
+      "length": 13,
+      "width": 7,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 29,
-      "y": 14,
+      "x": 23,
+      "y": 11,
       "angle": 0
     },
     {
@@ -203,8 +93,8 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 29,
-      "y": 10,
+      "x": 4,
+      "y": 7,
       "angle": 90
     },
     {
@@ -213,9 +103,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 13,
-      "y": 13,
-      "angle": 180
+      "x": 10,
+      "y": 14,
+      "angle": 0
     },
     {
       "id": "obstacle_4",
@@ -223,9 +113,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 22,
-      "y": 0,
-      "angle": 0
+      "x": 16,
+      "y": 4,
+      "angle": 180
     },
     {
       "id": "obstacle_5",
@@ -233,9 +123,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 11,
-      "y": 15,
-      "angle": 270
+      "x": 35,
+      "y": 4,
+      "angle": 180
     }
   ]
 }
