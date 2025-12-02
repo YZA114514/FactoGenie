@@ -7,12 +7,10 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon as MplPolygon
-
 try:  # pragma: no cover - package import convenience
     from .model import build_model, load_config
     from .planning import load_layout, load_layout_data, compute_route_plans
-    from .geometry_utils import oriented_rectangle, rotated_center
+    from .visual_utils import draw_layout as draw_layout_base
 except ImportError:  # pragma: no cover
     import sys
 
@@ -20,7 +18,7 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from model import build_model, load_config  # type: ignore
     from planning import load_layout, load_layout_data, compute_route_plans  # type: ignore
-    from geometry_utils import oriented_rectangle, rotated_center  # type: ignore
+    from visual_utils import draw_layout as draw_layout_base  # type: ignore
 
 
 Task = Dict[str, object]
@@ -43,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duration",
         type=float,
-        default=120.0,
+        default=1200.0,
         help="Simulation horizon",
     )
     parser.add_argument(
@@ -173,33 +171,7 @@ def extract_tasks(
 
 
 def draw_layout(ax, layout_data: Dict, highlighted_nodes: Optional[Iterable[str]] = None) -> None:
-    highlighted = set(highlighted_nodes or [])
-    for idx, fu in enumerate(layout_data.get("fus", [])):
-        label = str(fu.get("id"))
-        x = float(fu.get("x", 0.0))
-        y = float(fu.get("y", 0.0))
-        length = float(fu.get("length", 0.0))
-        width = float(fu.get("width", 0.0))
-        angle = float(fu.get("angle", fu.get("angle_deg", 0.0)))
-        poly = oriented_rectangle(x, y, length, width, angle)
-        ax.add_patch(
-            MplPolygon(
-                poly,
-                closed=True,
-                facecolor="#8fbcd4" if label in highlighted else "#cccccc",
-                edgecolor="black",
-                alpha=0.5,
-            )
-        )
-        cx, cy = rotated_center(x, y, length, width, angle)
-        ax.text(cx, cy, label, ha="center", va="center", fontsize=8)
-    factory = layout_data.get("factory", {})
-    ax.set_xlim(0.0, float(factory.get("length", 50.0)))
-    ax.set_ylim(0.0, float(factory.get("width", 30.0)))
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.grid(True, linestyle="--", alpha=0.3)
+    draw_layout_base(ax, layout_data, highlight_nodes=highlighted_nodes, used_nodes=highlighted_nodes)
 
 
 def plot_paths(ax, tasks: Iterable[Task], colors: Dict[str, str]) -> None:

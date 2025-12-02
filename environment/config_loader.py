@@ -67,33 +67,64 @@ class ConfigLoader:
     
     def get_functional_units(self) -> List[Dict]:
         """
-        从布局配置中提取功能单元信息
+        从布局配置中提取功能单元信息（包括 fus 和可移动的 obstacles）
         
         Returns:
             功能单元列表，每个元素为字典:
             {
-                'id': str,           # 功能单元ID (如 'rec_dock', 'station_1')
+                'id': str,           # 功能单元ID (如 'rec_dock', 'station_1', 'obstacle_2')
                 'name': str,         # 显示名称
                 'size': (int, int),  # (长度, 宽度)
                 'rotatable': bool,   # 是否可旋转
                 'notch': (int, int), # 缺口尺寸 (notch_length, notch_width)
+                'is_obstacle': bool, # 是否为障碍物（用于导出时区分）
             }
+        
+        注意：
+            - fus: 全部读取（7个功能单元）
+            - obstacles: 只读取 obstacle_2 至 obstacle_5（4个可移动障碍物）
+            - cafeteria 固定不动，不参与摆放
         """
         functional_units = []
         
+        # 1. 读取所有 fus（功能单元）
         if self.layout_config and 'fus' in self.layout_config:
             for idx, fu in enumerate(self.layout_config['fus']):
                 unit = {
                     'id': fu['id'],
                     'name': fu['id'],
                     'size': (fu['length'], fu['width']),
-                    'rotatable': True,  # 默认可旋转，可根据需要添加配置
+                    'rotatable': True,  # 默认可旋转
                     'notch': (fu.get('notch_length', 0), fu.get('notch_width', 0)),
+                    'is_obstacle': False,  # 标记为非障碍物
                     # 保存原始配置用于后续输出
                     'buffer_in': fu.get('buffer_in', {'capacity': 100, 'initial': 0}),
                     'buffer_out': fu.get('buffer_out', {'capacity': 100, 'initial': 0}),
                     'production_rate': fu.get('production_rate', 1),
                     'processing_time': fu.get('processing_time', 0.0),
+                }
+                functional_units.append(unit)
+        
+        # 2. 读取可移动的 obstacles（obstacle_2 至 obstacle_5）
+        # cafeteria 固定不动，不参与摆放
+        MOVABLE_OBSTACLES = {'obstacle_2', 'obstacle_3', 'obstacle_4', 'obstacle_5'}
+        
+        if self.layout_config and 'obstacles' in self.layout_config:
+            for obs in self.layout_config['obstacles']:
+                obs_id = obs['id']
+                if obs_id in MOVABLE_OBSTACLES:
+                    unit = {
+                        'id': obs_id,
+                        'name': obs_id,
+                        'size': (obs['length'], obs['width']),
+                        'rotatable': True,  # 障碍物也可旋转
+                        'notch': (obs.get('notch_length', 0), obs.get('notch_width', 0)),
+                        'is_obstacle': True,  # 标记为障碍物
+                        # 障碍物没有生产相关属性，使用默认值
+                        'buffer_in': {'capacity': 0, 'initial': 0},
+                        'buffer_out': {'capacity': 0, 'initial': 0},
+                        'production_rate': 0,
+                        'processing_time': 0.0,
                 }
                 functional_units.append(unit)
         

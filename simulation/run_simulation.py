@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path(__file__).resolve().parent / "configs" / "simple_four_station.json",
+        default=Path(__file__).resolve().parent / "configs" / "chair_factory.json",
         help="Path to JSON configuration file",
     )
     parser.add_argument(
@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--duration",
         type=float,
-        default=200.0,
+        default=1000.0,
         help="Simulation horizon",
     )
     return parser.parse_args()

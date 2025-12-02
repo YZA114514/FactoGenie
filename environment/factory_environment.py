@@ -192,11 +192,14 @@ class LayoutEnvironment:
         Returns:
             初始状态字典
         """
-        # 布局网格 (0=空闲, >0=功能单元ID)
+        # 布局网格 (0=空闲, >0=功能单元ID, -1=固定障碍物)
         self.layout_grid = np.zeros((self.nx, self.ny), dtype=np.int32)
         
         # 限制区域（墙壁、通道等）
         self.restricted_areas = np.zeros((self.nx, self.ny), dtype=bool)
+        
+        # 标记固定障碍物（cafeteria）在 layout_grid 上
+        self._mark_fixed_obstacles()
         
         # 已放置的功能单元
         self.placed_units = []  # [(unit_id, x, y, rotation), ...]
@@ -208,6 +211,48 @@ class LayoutEnvironment:
         self.episode_reward = 0.0
         
         return self._get_state()
+    
+    def _mark_fixed_obstacles(self) -> None:
+        """
+        在 layout_grid 上标记固定障碍物（如 cafeteria）
+        这些障碍物不参与摆放，但其他单元不能与它们重叠
+        """
+        if not self.layout_template:
+            return
+        
+        # 固定障碍物列表（不参与摆放的障碍物）
+        FIXED_OBSTACLES = {'cafeteria'}
+        
+        obstacles = self.layout_template.get('obstacles', [])
+        for obs in obstacles:
+            obs_id = obs.get('id', '')
+            if obs_id not in FIXED_OBSTACLES:
+                continue
+            
+            # 获取位置和尺寸
+            x = int(obs.get('x', 0))
+            y = int(obs.get('y', 0))
+            length = int(obs.get('length', 0))
+            width = int(obs.get('width', 0))
+            angle = int(obs.get('angle', 0)) % 360
+            
+            # 根据旋转角度计算实际占用的网格范围
+            if angle == 0:
+                occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
+            elif angle == 90:
+                occupied_cells = [(x + dx, y - length + dy) for dx in range(width) for dy in range(length)]
+            elif angle == 180:
+                occupied_cells = [(x - length + dx, y - width + dy) for dx in range(length) for dy in range(width)]
+            elif angle == 270:
+                occupied_cells = [(x - width + dx, y + dy) for dx in range(width) for dy in range(length)]
+            else:
+                # 非标准角度，使用 angle=0 的逻辑
+                occupied_cells = [(x + dx, y + dy) for dx in range(length) for dy in range(width)]
+            
+            # 标记固定障碍物区域（使用 -1 表示）
+            for cx, cy in occupied_cells:
+                if 0 <= cx < self.nx and 0 <= cy < self.ny:
+                    self.layout_grid[cx, cy] = -1
     
     def step(self, action: Dict) -> Tuple[Dict, float, bool, Dict]:
         """
@@ -602,23 +647,29 @@ class LayoutEnvironment:
             基于仿真结果的奖励值
         """
         try:
-            print(f"\n[仿真] 开始运行仿真系统...")
-            print(f"[仿真] 配置: {self.config_path}")
-            print(f"[仿真] 时长: {self.simulation_duration}")
+            # 性能优化：减少不必要的打印输出
+            _need_full_metrics = hasattr(self, 'metrics_log_path') and self.metrics_log_path is not None
+            if _need_full_metrics:
+                print(f"\n[仿真] 开始运行仿真系统...")
+                print(f"[仿真] 配置: {self.config_path}")
+                print(f"[仿真] 时长: {self.simulation_duration}")
             
             # 1. 导出当前布局到 JSON
             self._export_current_layout()
-            print(f"[仿真] 布局已导出到: {self.layout_path}")
+            if _need_full_metrics:
+                print(f"[仿真] 布局已导出到: {self.layout_path}")
             
             # 2. 运行仿真获取指标
             from simulation.interface import compute_metrics
-            print(f"[仿真] 正在运行仿真（请稍候）...")
+            if _need_full_metrics:
+                print(f"[仿真] 正在运行仿真（请稍候）...")
             
+            # 性能优化：detail=False 只返回摘要，不返回完整详细信息
             metrics_result = compute_metrics(
                 config_path=self.config_path,
                 duration=self.simulation_duration,
                 layout_path=self.layout_path,
-                detail=True
+                detail=False  # 改为False，减少不必要的数据提取
             )
             
             # 3. 从指标中提取奖励
@@ -626,57 +677,69 @@ class LayoutEnvironment:
             static = summary.get('static', {})
             dynamic = summary.get('dynamic', {})
             
-            # 提取关键指标（使用训练数据分析得到的真实范围）
+            # 提取关键指标（仅提取计算奖励所需的最小指标集）
             avg_distance = static.get('average_route_distance', 0)
-            total_distance = static.get('total_route_distance', 0)
-            max_distance = static.get('max_route_distance', 0)
-            min_distance = static.get('min_route_distance', 0)
             total_logistics = static.get('total_logistics_intensity', 0)
-            space_util = static.get('space_utilization', 0)
-            factory_area = static.get('factory_area', 0)
-            occupied_area = static.get('occupied_area', 0)
-            free_area = static.get('free_area', 0)
-            
             finished_goods = dynamic.get('finished_goods', 0)
-            throughput_rate = dynamic.get('throughput_rate', 0)
             
-            # 计算平均工位利用率
+            # 计算平均工位利用率（仅用于奖励计算）
             station_util_dict = dynamic.get('station_utilization', {})
             if station_util_dict:
                 station_utils = [v.get('utilization', 0) for v in station_util_dict.values() if isinstance(v, dict)]
                 avg_station_util = sum(station_utils) / len(station_utils) if station_utils else 0
             else:
                 avg_station_util = 0
-
-            transporter_util_dict = dynamic.get('transporter_utilization', {})
-            summary_node_detail = dynamic.get('summary_node', {})
-            summary_material_detail = dynamic.get('summary_material', {})
             
-            print(f"[仿真指标] 平均距离:{avg_distance:.2f}, 物流强度:{total_logistics:.0f}, 空间利用:{space_util:.2%}")
-            print(f"[仿真指标] 完成产品:{finished_goods:.0f}, 吞吐率:{throughput_rate:.6f}, 工位利用率:{avg_station_util:.4f}")
+            # 性能优化：延迟提取不必要的指标（仅在需要记录时才提取）
+            # 这些指标在训练时不需要，只在评估/日志记录时需要
+            # _need_full_metrics 已在函数开头定义
+            
+            if _need_full_metrics:
+                # 仅在需要记录日志时提取完整指标
+                total_distance = static.get('total_route_distance', 0)
+                max_distance = static.get('max_route_distance', 0)
+                min_distance = static.get('min_route_distance', 0)
+                space_util = static.get('space_utilization', 0)
+                factory_area = static.get('factory_area', 0)
+                occupied_area = static.get('occupied_area', 0)
+                free_area = static.get('free_area', 0)
+                throughput_rate = dynamic.get('throughput_rate', 0)
+                transporter_util_dict = dynamic.get('transporter_utilization', {})
+                summary_node_detail = dynamic.get('summary_node', {})
+                summary_material_detail = dynamic.get('summary_material', {})
+            else:
+                # 训练时使用占位值，避免不必要的计算
+                total_distance = max_distance = min_distance = 0
+                space_util = factory_area = occupied_area = free_area = 0
+                throughput_rate = 0
+                transporter_util_dict = {}
+                summary_node_detail = summary_material_detail = ""
+            
+            # 性能优化：减少不必要的打印输出（训练时可能产生大量输出）
+            if _need_full_metrics:
+                print(f"[仿真指标] 平均距离:{avg_distance:.2f}, 物流强度:{total_logistics:.0f}, 空间利用:{space_util:.2%}")
+                print(f"[仿真指标] 完成产品:{finished_goods:.0f}, 吞吐率:{throughput_rate:.6f}, 工位利用率:{avg_station_util:.4f}")
+            else:
+                # 训练时只打印关键指标
+                print(f"[仿真] 距离:{avg_distance:.2f}, 物流:{total_logistics:.0f}, 产品:{finished_goods:.0f}, 利用率:{avg_station_util:.4f}")
             
             # 计算多目标奖励（归一化到 [-1, 0] 范围）
-            # 改进版：扩大指标范围 + Tanh非线性映射（增大好坏动作的区别，保持[-1,0]范围）
+            # 改进版：扩大指标范围 + Tanh非线性映射（增强好动作和坏动作的区分度）
             
-            # 1. 运输距离越小越好（扩大范围：6.0-28.0，使用Tanh映射）
-            distance_best, distance_worst = 6.0, 28.0
+            # 1. 运输距离越小越好（扩大范围：6.0-28.0，使用Tanh非线性映射）
+            distance_best, distance_worst = 10.0, 29.0
             distance_range = max(distance_worst - distance_best, 1e-6)
-            # 归一化到 [0, 1]
             distance_normalized = (avg_distance - distance_best) / distance_range
             distance_normalized = np.clip(distance_normalized, 0.0, 1.0)
-            # Tanh映射：-tanh(k*x) / tanh(k)，保持[-1,0]范围，区别度提升12%
-            # k=2.5 提供平衡的非线性效果
-            k_dist = 3.5
+            k_dist = 3.0
             distance_reward = -np.tanh(k_dist * distance_normalized) / np.tanh(k_dist)
             
-            # 2. 物流强度越小越好（扩大范围：200.0-1050.0，使用Tanh映射）
-            logistics_best, logistics_worst = 200.0, 1050.0
+            # 2. 物流强度越小越好（扩大范围：200.0-1050.0，使用Tanh非线性映射）
+            logistics_best, logistics_worst = 3800.0, 13000.0
             logistics_range = max(logistics_worst - logistics_best, 1e-6)
-            # 归一化到 [0, 1]
             logistics_normalized = (total_logistics - logistics_best) / logistics_range
             logistics_normalized = np.clip(logistics_normalized, 0.0, 1.0)
-            # Tanh映射：k=3.0 提供更强的惩罚力度
-            k_log = 3.5
+            k_log = 3.0
             logistics_reward = -np.tanh(k_log * logistics_normalized) / np.tanh(k_log)
             
             # 3. 物料流清晰度奖励（基于角度偏差，物料流路径直线化）
@@ -684,8 +747,8 @@ class LayoutEnvironment:
             flow_clarity_reward = self._calculate_flow_clarity_reward()
             flow_clarity_reward = np.clip(flow_clarity_reward, -1.0, 0.0)
             
-            # 4. 吞吐量奖励（扩大范围：120-420，使用Tanh映射）
-            throughput_best, throughput_worst = 400, 120.0
+            # 4. 吞吐量奖励（扩大范围：120-400，使用Tanh非线性映射）
+            throughput_best, throughput_worst = 400.0, 120.0
             if finished_goods < throughput_worst:
                 # 严重不足，给予最大惩罚
                 throughput_reward = -1.0
@@ -693,30 +756,30 @@ class LayoutEnvironment:
                 # 达到或超过最优目标
                 throughput_reward = 0.0
             else:
-                # 归一化到 [0, 1]，反向（产量低惩罚重）
+                # Tanh非线性映射：反向（产量低惩罚重）
                 throughput_normalized = 1.0 - (finished_goods - throughput_worst) / (throughput_best - throughput_worst)
                 throughput_normalized = np.clip(throughput_normalized, 0.0, 1.0)
-                # Tanh映射：k=2.0（温和的惩罚）
                 k_tp = 3.0
                 throughput_reward = -np.tanh(k_tp * throughput_normalized) / np.tanh(k_tp)
             
-            # 5. 工位利用率奖励（扩大范围：0.01-0.08，使用Tanh映射）
-            util_best, util_worst = 0.07,0.01
-            if avg_station_util < 0.001:
+            # 5. 工位利用率奖励（扩大范围：0.01-0.07，使用Tanh非线性映射）
+            util_best, util_worst = 0.8, 0.3
+            if avg_station_util < 0.05:
                 # 几乎不工作，最大惩罚
                 utilization_reward = -1.0
             elif avg_station_util >= util_best:
                 # 达到最优利用率
                 utilization_reward = 0.0
             else:
-                # 归一化到 [0, 1]，反向（利用率低惩罚重）
+                # Tanh非线性映射：反向（利用率低惩罚重）
                 util_normalized = 1.0 - (avg_station_util - util_worst) / (util_best - util_worst)
                 util_normalized = np.clip(util_normalized, 0.0, 1.0)
-                # Tanh映射：k=2.0（温和的惩罚）
-                k_util = 3.0
+                k_util = 2.5
                 utilization_reward = -np.tanh(k_util * util_normalized) / np.tanh(k_util)
             
-            print(f"[奖励分量] 距离:{distance_reward:.3f} (tanh k=2.5), 物流:{logistics_reward:.3f} (tanh k=3.0), 流清晰:{flow_clarity_reward:.3f}, 吞吐:{throughput_reward:.3f} (tanh k=2.0), 利用率:{utilization_reward:.3f} (tanh k=2.0)")
+            # 性能优化：减少打印输出（训练时可能产生大量输出）
+            if _need_full_metrics:
+                print(f"[奖励分量] 距离:{distance_reward:.3f} (Tanh), 物流:{logistics_reward:.3f} (Tanh), 流清晰:{flow_clarity_reward:.3f}, 吞吐:{throughput_reward:.3f} (Tanh), 利用率:{utilization_reward:.3f} (Tanh)")
             
             # 加权求和（移除空间利用项，重新归一化权重）
             weights = self.objective_weights
@@ -739,20 +802,16 @@ class LayoutEnvironment:
             # 确保在 [-1, 0] 范围
             reward = np.clip(reward, -1.0, 0.0)
             
-            print(f"[最终奖励] {reward:.6f}")
+            # 性能优化：减少打印输出
+            if _need_full_metrics:
+                print(f"[最终奖励] {reward:.6f}")
 
+            # 性能优化：延迟JSON序列化，只在需要记录日志时才执行
+            # 训练时只保存基本指标，避免不必要的JSON序列化开销
             self.last_metrics = {
                 'average_route_distance': float(avg_distance),
-                'total_route_distance': float(total_distance),
-                'max_route_distance': float(max_distance),
-                'min_route_distance': float(min_distance),
                 'total_logistics_intensity': float(total_logistics),
-                'space_utilization': float(space_util),
-                'factory_area': float(factory_area),
-                'occupied_area': float(occupied_area),
-                'free_area': float(free_area),
                 'finished_goods': float(finished_goods),
-                'throughput_rate': float(throughput_rate),
                 'avg_station_utilization': float(avg_station_util),
                 'distance_reward': float(distance_reward),
                 'logistics_reward': float(logistics_reward),
@@ -760,13 +819,26 @@ class LayoutEnvironment:
                 'throughput_reward': float(throughput_reward),
                 'utilization_reward': float(utilization_reward),
                 'final_reward': float(reward),
-                'station_utilization_detail': json.dumps(station_util_dict, ensure_ascii=False),
-                'transporter_utilization_detail': json.dumps(transporter_util_dict, ensure_ascii=False),
-                'summary_node_detail': json.dumps(summary_node_detail, ensure_ascii=False),
-                'summary_material_detail': json.dumps(summary_material_detail, ensure_ascii=False),
-                'static_summary_json': json.dumps(static, ensure_ascii=False),
-                'dynamic_summary_json': json.dumps(dynamic, ensure_ascii=False)
             }
+            
+            # 仅在需要记录详细日志时才序列化JSON（延迟序列化）
+            if _need_full_metrics:
+                self.last_metrics.update({
+                    'total_route_distance': float(total_distance),
+                    'max_route_distance': float(max_distance),
+                    'min_route_distance': float(min_distance),
+                    'space_utilization': float(space_util),
+                    'factory_area': float(factory_area),
+                    'occupied_area': float(occupied_area),
+                    'free_area': float(free_area),
+                    'throughput_rate': float(throughput_rate),
+                    'station_utilization_detail': json.dumps(station_util_dict, ensure_ascii=False),
+                    'transporter_utilization_detail': json.dumps(transporter_util_dict, ensure_ascii=False),
+                    'summary_node_detail': json.dumps(summary_node_detail, ensure_ascii=False),
+                    'summary_material_detail': json.dumps(summary_material_detail, ensure_ascii=False),
+                    'static_summary_json': json.dumps(static, ensure_ascii=False),
+                    'dynamic_summary_json': json.dumps(dynamic, ensure_ascii=False)
+                })
 
             return float(reward)
 
@@ -801,29 +873,28 @@ class LayoutEnvironment:
                     metrics[key] = value
 
         self.episode_counter += 1
-        # self._log_metrics(metrics)
+        self._log_metrics(metrics)
         self._maybe_save_episode_layout()
         self.last_metrics = None
         return metrics
 
     def _log_metrics(self, metrics: Dict) -> None:
         """将仿真指标写入CSV日志，便于后续分析"""
-        # 用户要求暂时禁用每个 episode 的 CSV 写入，如需恢复可取消以下注释
-        # if not self.metrics_log_path:
-        #     return
-        # row = {field: metrics.get(field) for field in METRIC_FIELDS}
-        # row['episode'] = self.episode_counter
-        # row['timestamp'] = datetime.now().isoformat()
-        # fieldnames = ['episode', 'timestamp', *METRIC_FIELDS]
-        # try:
-        #     with self.metrics_log_path.open('a', newline='', encoding='utf-8') as f:
-        #         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        #         if not self.metrics_log_header_written:
-        #             writer.writeheader()
-        #             self.metrics_log_header_written = True
-        #         writer.writerow(row)
-        # except Exception as exc:
-        #     print(f"警告: 写入指标日志失败: {exc}")
+        if not self.metrics_log_path:
+            return
+        row = {field: metrics.get(field) for field in METRIC_FIELDS}
+        row['episode'] = self.episode_counter
+        row['timestamp'] = datetime.now().isoformat()
+        fieldnames = ['episode', 'timestamp', *METRIC_FIELDS]
+        try:
+            with self.metrics_log_path.open('a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not self.metrics_log_header_written:
+                    writer.writeheader()
+                    self.metrics_log_header_written = True
+                writer.writerow(row)
+        except Exception as exc:
+            print(f"警告: 写入指标日志失败: {exc}")
 
     def _maybe_save_episode_layout(self) -> None:
         """仅在满足周期条件时保存布局及可视化数据"""

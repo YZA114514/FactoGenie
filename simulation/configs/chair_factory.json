@@ -1,4 +1,4 @@
-{
+﻿{
     "initial_inventory":  {
                               "rec_dock":  {
                                                "leg_spindle":  1600,
@@ -14,7 +14,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "leg_spindle",
-                       "batch_size":  5,
+                       "batch_size":  200,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -22,7 +22,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "foot_hardware",
-                       "batch_size":  5,
+                       "batch_size":  400,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -30,7 +30,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "seat",
-                       "batch_size":  4,
+                       "batch_size":  100,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -38,7 +38,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "cross_brace",
-                       "batch_size":  8,
+                       "batch_size":  200,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -46,7 +46,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "back_rail",
-                       "batch_size":  2,
+                       "batch_size":  100,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -54,7 +54,7 @@
                        "from":  "rec_dock",
                        "to":  "central_store",
                        "material":  "back_spoke",
-                       "batch_size":  6,
+                       "batch_size":  200,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    },
@@ -62,7 +62,7 @@
                        "from":  "central_store",
                        "to":  "station_1",
                        "material":  "leg_spindle",
-                       "batch_size":  5,
+                       "batch_size":  20,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -70,7 +70,7 @@
                        "from":  "central_store",
                        "to":  "station_1",
                        "material":  "foot_hardware",
-                       "batch_size":  5,
+                       "batch_size":  100,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -78,7 +78,7 @@
                        "from":  "central_store",
                        "to":  "station_2",
                        "material":  "back_rail",
-                       "batch_size":  2,
+                       "batch_size":  10,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -86,7 +86,7 @@
                        "from":  "central_store",
                        "to":  "station_2",
                        "material":  "back_spoke",
-                       "batch_size":  6,
+                       "batch_size":  20,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -94,7 +94,7 @@
                        "from":  "central_store",
                        "to":  "station_3",
                        "material":  "seat",
-                       "batch_size":  4,
+                       "batch_size":  25,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -102,7 +102,7 @@
                        "from":  "central_store",
                        "to":  "station_3",
                        "material":  "cross_brace",
-                       "batch_size":  8,
+                       "batch_size":  50,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -110,7 +110,7 @@
                        "from":  "station_1",
                        "to":  "station_3",
                        "material":  "leg_assy",
-                       "batch_size":  4,
+                       "batch_size":  20,
                        "travel_time":  0,
                        "transporter_id":  "handcart"
                    },
@@ -118,7 +118,7 @@
                        "from":  "station_2",
                        "to":  "station_4",
                        "material":  "back_assy",
-                       "batch_size":  1,
+                       "batch_size":  2,
                        "travel_time":  0,
                        "transporter_id":  "hand"
                    },
@@ -126,7 +126,7 @@
                        "from":  "station_3",
                        "to":  "station_4",
                        "material":  "base",
-                       "batch_size":  1,
+                       "batch_size":  2,
                        "travel_time":  0,
                        "transporter_id":  "hand"
                    },
@@ -134,7 +134,7 @@
                        "from":  "station_4",
                        "to":  "ship_dock",
                        "material":  "chair",
-                       "batch_size":  1,
+                       "batch_size":  20,
                        "travel_time":  0,
                        "transporter_id":  "lift_truck"
                    }
@@ -147,7 +147,7 @@
                                           "foot_hardware":  1
                                       },
                            "output":  "leg_assy",
-                           "process_time":  2.5
+                           "process_time":  1
                        },
                        {
                            "station":  "station_2",
@@ -156,7 +156,7 @@
                                           "back_spoke":  3
                                       },
                            "output":  "back_assy",
-                           "process_time":  2.0
+                           "process_time":  4
                        },
                        {
                            "station":  "station_3",
@@ -166,7 +166,7 @@
                                           "leg_assy":  4
                                       },
                            "output":  "base",
-                           "process_time":  3.0
+                           "process_time":  4
                        },
                        {
                            "station":  "station_4",
@@ -175,7 +175,7 @@
                                           "back_assy":  1
                                       },
                            "output":  "chair",
-                           "process_time":  2.5
+                           "process_time":  4
                        }
                    ],
     "summary":  {
@@ -207,18 +207,18 @@
     "transporters":  [
                          {
                              "id":  "lift_truck",
-                             "count":  2,
-                             "speed":  1
+                             "count":  1,
+                             "speed":  29
                          },
                          {
                              "id":  "handcart",
-                             "count":  3,
-                             "speed":  1
+                             "count":  1,
+                             "speed":  5
                          },
                          {
                              "id":  "hand",
-                             "count":  4,
-                             "speed":  1
+                             "count":  1,
+                             "speed":  5
                          }
                      ],
     "layout":  "layouts/chair_layout.json"

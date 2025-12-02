@@ -17,7 +17,6 @@ try:  # pragma: no cover
         compute_route_plans,
         resolve_layout_path,
     )
-    from .run_simulation import determine_summary
 except ImportError:  # pragma: no cover
     import sys
 
@@ -25,6 +24,15 @@ except ImportError:  # pragma: no cover
     sys.path.append(str(base))
     from model import build_model, load_config  # type: ignore
     from planning import load_layout, load_layout_data, compute_route_plans, resolve_layout_path  # type: ignore
+
+try:  # pragma: no cover
+    from .run_simulation import determine_summary  # type: ignore
+except ImportError:  # pragma: no cover
+    import sys
+    from pathlib import Path
+
+    sys.path.append(str(Path(__file__).resolve().parent))
+    from run_simulation import determine_summary  # type: ignore
 
 
 def path_length(points: Iterable[Iterable[float]]) -> float:
