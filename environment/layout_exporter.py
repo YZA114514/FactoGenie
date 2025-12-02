@@ -34,12 +34,12 @@ class LayoutExporter:
         functional_units: List[Dict]
     ) -> None:
         """
-        导出布局到 JSON 文件
+        导出布局到 JSON 文件（同时更新 fus 和 obstacles）
         
         Args:
             placed_units: 已放置的功能单元列表 [(unit_id, x, y, rotation), ...]
                          其中 unit_id 是在 functional_units 中的索引
-            functional_units: 功能单元配置列表（从 config_loader 获取）
+            functional_units: 功能单元配置列表（从 config_loader 获取，包含 fus 和可移动 obstacles）
         """
         # 创建新的布局配置（基于模板）
         new_layout = copy.deepcopy(self.layout_template)
@@ -53,36 +53,45 @@ class LayoutExporter:
                     'grid_spacing': 1
                 },
                 'fus': [],
+                'obstacles': [],
                 'transporters': [],
                 'product_flows': []
             }
         
-        # 更新功能单元的位置和角度
+        # 获取 fus 和 obstacles 列表
         fus_list = new_layout.get('fus', [])
+        obstacles_list = new_layout.get('obstacles', [])
         
-        # 创建 id 到 fus 索引的映射
-        id_to_fus_idx = {}
-        for idx, fu in enumerate(fus_list):
-            id_to_fus_idx[fu['id']] = idx
+        # 创建 id 到索引的映射（分别对 fus 和 obstacles）
+        id_to_fus_idx = {fu['id']: idx for idx, fu in enumerate(fus_list)}
+        id_to_obs_idx = {obs['id']: idx for idx, obs in enumerate(obstacles_list)}
         
         # 更新每个已放置单元的位置
         for unit_idx, x, y, rotation in placed_units:
             unit = functional_units[unit_idx]
             unit_id = unit['id']
+            is_obstacle = unit.get('is_obstacle', False)
             
-            # 如果该单元在 fus 列表中，更新其位置
+            if is_obstacle:
+                # 更新 obstacles 列表中的位置
+                if unit_id in id_to_obs_idx:
+                    obs_idx = id_to_obs_idx[unit_id]
+                    obstacles_list[obs_idx]['x'] = int(x)
+                    obstacles_list[obs_idx]['y'] = int(y)
+                    obstacles_list[obs_idx]['angle'] = int(rotation)
+            else:
+                # 更新 fus 列表中的位置
             if unit_id in id_to_fus_idx:
                 fus_idx = id_to_fus_idx[unit_id]
-                
                 # 坐标系统已统一：Environment和Simulation都使用旋转前矩形的左下角
                 # 直接使用Environment的坐标，无需转换
                 fus_list[fus_idx]['x'] = int(x)
                 fus_list[fus_idx]['y'] = int(y)
                 fus_list[fus_idx]['angle'] = int(rotation)
-                
                 # length和width保持不变（Simulation会根据angle旋转）
         
         new_layout['fus'] = fus_list
+        new_layout['obstacles'] = obstacles_list
         
         # 确保输出目录存在
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +100,8 @@ class LayoutExporter:
         with open(self.output_path, 'w', encoding='utf-8') as f:
             json.dump(new_layout, f, indent=2, ensure_ascii=False)
         
-        print(f"✓ 布局已导出到: {self.output_path}")
+        # 性能优化：减少打印输出（训练时会产生大量输出）
+        # print(f"✓ 布局已导出到: {self.output_path}")  # 已注释，减少I/O开销
     
     def export_layout_dict(
         self, 
@@ -103,33 +113,47 @@ class LayoutExporter:
         
         Args:
             placed_units: 已放置的功能单元列表
-            functional_units: 功能单元配置列表
+            functional_units: 功能单元配置列表（包含 fus 和可移动 obstacles）
             
         Returns:
             布局配置字典
         """
-        # 创建临时文件导出，然后读取返回
         new_layout = copy.deepcopy(self.layout_template)
         
-        if not new_layout or 'fus' not in new_layout:
+        if not new_layout:
             return {}
         
-        fus_list = new_layout['fus']
+        # 获取 fus 和 obstacles 列表
+        fus_list = new_layout.get('fus', [])
+        obstacles_list = new_layout.get('obstacles', [])
+        
+        # 创建 id 到索引的映射
         id_to_fus_idx = {fu['id']: idx for idx, fu in enumerate(fus_list)}
+        id_to_obs_idx = {obs['id']: idx for idx, obs in enumerate(obstacles_list)}
         
         for unit_idx, x, y, rotation in placed_units:
             unit = functional_units[unit_idx]
             unit_id = unit['id']
+            is_obstacle = unit.get('is_obstacle', False)
             
+            if is_obstacle:
+                # 更新 obstacles 列表中的位置
+                if unit_id in id_to_obs_idx:
+                    obs_idx = id_to_obs_idx[unit_id]
+                    obstacles_list[obs_idx]['x'] = int(x)
+                    obstacles_list[obs_idx]['y'] = int(y)
+                    obstacles_list[obs_idx]['angle'] = int(rotation)
+            else:
+                # 更新 fus 列表中的位置
             if unit_id in id_to_fus_idx:
                 fus_idx = id_to_fus_idx[unit_id]
-                
                 # 坐标系统已统一，直接使用Environment的坐标
                 fus_list[fus_idx]['x'] = int(x)
                 fus_list[fus_idx]['y'] = int(y)
                 fus_list[fus_idx]['angle'] = int(rotation)
         
         new_layout['fus'] = fus_list
+        new_layout['obstacles'] = obstacles_list
         return new_layout
 
 

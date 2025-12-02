@@ -68,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--simulation_duration",
         type=float,
-        default=28800,
+        default=2000,
         help="Simulation duration in time units (default: 86400 for extended production).",
     )
     parser.add_argument(

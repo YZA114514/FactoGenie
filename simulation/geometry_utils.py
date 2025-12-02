@@ -42,6 +42,36 @@ def oriented_rectangle(x: float, y: float, length: float, width: float, angle_de
     return [(x + px, y + py) for px, py in rotated]
 
 
+def oriented_rectangle_with_notch(
+    x: float,
+    y: float,
+    length: float,
+    width: float,
+    angle_deg: float,
+    notch_length: float = 0.0,
+    notch_width: float = 0.0,
+) -> List[Point]:
+    """Rectangle polygon with optional top-right notch, rotated around lower-left corner."""
+
+    notch_length = float(notch_length or 0.0)
+    notch_width = float(notch_width or 0.0)
+    if notch_length < 0 or notch_width < 0 or notch_length > length or notch_width > width:
+        raise ValueError("notch_length/width must be within rectangle bounds")
+    if notch_length == 0.0 or notch_width == 0.0:
+        return oriented_rectangle(x, y, length, width, angle_deg)
+
+    base = [
+        (0.0, 0.0),
+        (length - notch_length, 0.0),
+        (length - notch_length, notch_width),
+        (length, notch_width),
+        (length, width),
+        (0.0, width),
+    ]
+    rotated = [rotate_clockwise(pt, angle_deg, origin=(0.0, 0.0)) for pt in base]
+    return [(x + px, y + py) for px, py in rotated]
+
+
 def rotated_center(x: float, y: float, length: float, width: float, angle_deg: float) -> Point:
     """Return the world-space centre of a rectangle rotated around its lower-left corner."""
 
@@ -56,6 +86,32 @@ def polygon_bounds(points: Sequence[Point]) -> Tuple[Tuple[float, float], Tuple[
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     return (min(xs), max(xs)), (min(ys), max(ys))
+
+
+def polygon_centroid(points: Sequence[Point]) -> Point:
+    """Return centroid of a polygon (non-self-intersecting)."""
+
+    pts = list(points)
+    if len(pts) < 3:
+        xs = [p[0] for p in pts] or [0.0]
+        ys = [p[1] for p in pts] or [0.0]
+        return (sum(xs) / len(xs), sum(ys) / len(ys))
+    area = 0.0
+    cx = 0.0
+    cy = 0.0
+    for i in range(len(pts)):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % len(pts)]
+        cross = x0 * y1 - x1 * y0
+        area += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(area) < 1e-12:
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return (sum(xs) / len(xs), sum(ys) / len(ys))
+    area *= 0.5
+    return (cx / (6 * area), cy / (6 * area))
 
 
 def point_in_polygon(point: Point, polygon: Sequence[Point], include_boundary: bool = True) -> bool:
@@ -109,8 +165,10 @@ __all__ = [
     "Point",
     "rotate_clockwise",
     "oriented_rectangle",
+    "oriented_rectangle_with_notch",
     "rotated_center",
     "polygon_bounds",
     "point_in_polygon",
     "min_distance_to_edges",
+    "polygon_centroid",
 ]
