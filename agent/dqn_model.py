@@ -523,7 +523,8 @@ class DQN(nn.Module):
         input_shape: tuple,
         num_actions: int,
         hidden_dims: list = [512, 256],
-        use_noisy: bool = False
+        use_noisy: bool = False,
+        sigma_init: float = 0.5,
     ):
         super(DQN, self).__init__()
         
@@ -538,7 +539,8 @@ class DQN(nn.Module):
         self.use_noisy = use_noisy
         
         # 选择线性层类型
-        LinearLayer = NoisyLinear if use_noisy else nn.Linear
+        import functools
+        LinearLayer = functools.partial(NoisyLinear, sigma_init=sigma_init) if use_noisy else nn.Linear
         
         # 构建网络
         layers = []
@@ -599,7 +601,8 @@ class DuelingDQN(nn.Module):
         input_shape: tuple,
         num_actions: int,
         hidden_dims: list = [512, 256],
-        use_noisy: bool = False
+        use_noisy: bool = False,
+        sigma_init: float = 0.5,
     ):
         super(DuelingDQN, self).__init__()
         
@@ -614,7 +617,8 @@ class DuelingDQN(nn.Module):
         self.use_noisy = use_noisy
         
         # 选择线性层类型
-        LinearLayer = NoisyLinear if use_noisy else nn.Linear
+        import functools
+        LinearLayer = functools.partial(NoisyLinear, sigma_init=sigma_init) if use_noisy else nn.Linear
         
         # 共享特征提取层
         shared_layers = []

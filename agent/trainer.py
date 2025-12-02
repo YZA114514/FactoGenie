@@ -41,12 +41,14 @@ def train(params):
     net = model_cls(
         env.observation_space.shape, 
         env.action_space.n,
-        use_noisy=params.use_noisy
+        use_noisy=params.use_noisy,
+        sigma_init=getattr(params, 'sigma_init', 0.5),
     ).to(device)
     tgt_net = model_cls(
         env.observation_space.shape, 
         env.action_space.n,
-        use_noisy=params.use_noisy
+        use_noisy=params.use_noisy,
+        sigma_init=getattr(params, 'sigma_init', 0.5),
     ).to(device)
     tgt_net.load_state_dict(net.state_dict())
     optimizer = optim.Adam(net.parameters(), lr=params.lr)
@@ -60,7 +62,7 @@ def train(params):
     reward_gamma = getattr(params, 'reward_gamma', 0.9)
     agent = Agent(env, buffer, reward_decompose=reward_decompose, reward_gamma=reward_gamma)
 
-    log_dir = Path("logs")
+    log_dir = Path("true_logs")
     log_dir.mkdir(parents=True, exist_ok=True)
 
     def format_param_value(value):
@@ -86,6 +88,7 @@ def train(params):
         ("use_double", "dbl"),
         ("use_dueling", "duel"),
         ("use_noisy", "noisy"),
+        ("sigma_init", "sinit"),
         ("use_simulation", "sim"),
         ("reward_decompose", "rdc"),
         ("reward_gamma", "rg"),
@@ -214,10 +217,18 @@ def train(params):
                 frame_idx += 1
                 pbar.update(1)
 
-                epsilon = max(
-                    params.epsilon_final,
-                    params.epsilon_start - frame_idx / params.epsilon_decay_last_frame,
-                )
+                # If NoisyNet is used, epsilon should be disabled (0.0)
+                if params.use_noisy:
+                    epsilon = 0.0
+                else:
+                    epsilon = max(
+                        params.epsilon_final,
+                        params.epsilon_start - frame_idx / params.epsilon_decay_last_frame,
+                    )
+                # If using NoisyNet, resample noise before selecting actions
+                if params.use_noisy:
+                    net.reset_noise()
+                    tgt_net.reset_noise()
                 reward = agent.play_step(net, epsilon, device=device)
                 if reward is not None:
                     total_rewards.append(reward)
@@ -236,6 +247,7 @@ def train(params):
                 buffer.update_beta(frame_idx)
                 
                 # 如果使用Noisy Net，重置噪声
+                # Ensure noise is resampled again before training/backprop
                 if params.use_noisy:
                     net.reset_noise()
                     tgt_net.reset_noise()

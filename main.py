@@ -58,6 +58,12 @@ if __name__ == "__main__":
         help="Enable Noisy Net for exploration.",
     )
     parser.add_argument(
+        "--sigma_init",
+        type=float,
+        default=0.5,
+        help="Initial sigma for NoisyNet (sigma_init).",
+    )
+    parser.add_argument(
         "--use_simulation",
         type=str2bool,
         nargs="?",

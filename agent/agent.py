@@ -64,6 +64,13 @@ class Agent:
             else:
                 return self.env.action_space.sample()
         
+        # 如果是 NoisyNet，确保在每次选择动作前重新采样噪声
+        if hasattr(net, 'reset_noise') and getattr(net, 'use_noisy', False):
+            try:
+                net.reset_noise()
+            except Exception:
+                pass
+
         # 贪心选择
         state_v = torch.tensor(
             np.array([self.state], copy=False), dtype=torch.float32, device=device
