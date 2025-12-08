@@ -17,11 +17,19 @@ from simulation.interface import compute_metrics
 def load_layout_placements(layout_path: Path) -> dict:
     data = json.loads(layout_path.read_text(encoding="utf-8"))
     placements = {}
+    # 从 fus 列表中加载功能单元的放置信息
     for fu in data.get("fus", []):
         fu_id = str(fu.get("id"))
         if not fu_id:
             continue
         placements[fu_id] = fu
+    # 从 obstacles 列表中加载可移动障碍物的放置信息
+    # （某些障碍物如 obstacle_2, obstacle_3 等被 config_loader 视为可移动的功能单元）
+    for obs in data.get("obstacles", []):
+        obs_id = str(obs.get("id"))
+        if not obs_id:
+            continue
+        placements[obs_id] = obs
     if not placements:
         raise ValueError(f"No functional units found in {layout_path}")
     return placements
@@ -68,39 +76,64 @@ def compute_rewards(summary: dict, env: LayoutEnvironment) -> dict:
     else:
         avg_station_util = 0.0
 
-    distance_best, distance_worst = 7.0, 24.0
+    # 计算多目标奖励（归一化到 [-1, 0] 范围）
+    # 改进版：扩大指标范围 + Tanh非线性映射（增强好动作和坏动作的区分度）
+    
+    # 1. 运输距离越小越好（扩大范围：10.0-29.0，使用Tanh非线性映射）
+    distance_best, distance_worst = 10.0, 29.0
     distance_range = max(distance_worst - distance_best, 1e-6)
-    distance_reward = float(np.clip(-(avg_distance - distance_best) / distance_range, -1.0, 0.0))
+    distance_normalized = (avg_distance - distance_best) / distance_range
+    distance_normalized = np.clip(distance_normalized, 0.0, 1.0)
+    k_dist = 3.0
+    distance_reward = float(-np.tanh(k_dist * distance_normalized) / np.tanh(k_dist))
 
-    logistics_best, logistics_worst = 240.0, 900.0
+    # 2. 物流强度越小越好（扩大范围：3800.0-13000.0，使用Tanh非线性映射）
+    logistics_best, logistics_worst = 3800.0, 13000.0
     logistics_range = max(logistics_worst - logistics_best, 1e-6)
-    logistics_reward = float(
-        np.clip(-(total_logistics - logistics_best) / logistics_range, -1.0, 0.0)
-    )
+    logistics_normalized = (total_logistics - logistics_best) / logistics_range
+    logistics_normalized = np.clip(logistics_normalized, 0.0, 1.0)
+    k_log = 3.0
+    logistics_reward = float(-np.tanh(k_log * logistics_normalized) / np.tanh(k_log))
 
+    # 3. 物料流清晰度奖励（基于角度偏差，物料流路径直线化）
     flow_clarity_reward = float(np.clip(env._calculate_flow_clarity_reward(), -1.0, 0.0))
 
-    if finished_goods < 200:
+    # 4. 吞吐量奖励（扩大范围：120-400，使用Tanh非线性映射）
+    throughput_best, throughput_worst = 400.0, 120.0
+    if finished_goods < throughput_worst:
+        # 严重不足，给予最大惩罚
         throughput_reward = -1.0
-    elif finished_goods < 400:
-        throughput_reward = float((finished_goods - 400) / 200.0)
+    elif finished_goods >= throughput_best:
+        # 达到或超过最优目标
+        throughput_reward = 0.0
     else:
-        throughput_reward = float(min((finished_goods - 400) / 800.0, 0.0))
+        # Tanh非线性映射：反向（产量低惩罚重）
+        throughput_normalized = 1.0 - (finished_goods - throughput_worst) / (throughput_best - throughput_worst)
+        throughput_normalized = np.clip(throughput_normalized, 0.0, 1.0)
+        k_tp = 3.0
+        throughput_reward = float(-np.tanh(k_tp * throughput_normalized) / np.tanh(k_tp))
 
-    if avg_station_util < 0.001:
+    # 5. 工位利用率奖励（扩大范围：0.3-0.8，使用Tanh非线性映射）
+    util_best, util_worst = 0.8, 0.3
+    if avg_station_util < 0.05:
+        # 几乎不工作，最大惩罚
         utilization_reward = -1.0
-    elif avg_station_util < 0.05:
-        utilization_reward = float((avg_station_util - 0.05) / 0.05)
+    elif avg_station_util >= util_best:
+        # 达到最优利用率
+        utilization_reward = 0.0
     else:
-        utilization_reward = float(min(-0.05 / avg_station_util + 1.0, 0.0))
-    utilization_reward = float(np.clip(utilization_reward, -1.0, 0.0))
+        # Tanh非线性映射：反向（利用率低惩罚重）
+        util_normalized = 1.0 - (avg_station_util - util_worst) / (util_best - util_worst)
+        util_normalized = np.clip(util_normalized, 0.0, 1.0)
+        k_util = 2.5
+        utilization_reward = float(-np.tanh(k_util * util_normalized) / np.tanh(k_util))
 
     weights = env.objective_weights
     weight_components = {
-        "distance": weights.get("transportation_intensity", 0.25),
-        "logistics": weights.get("material_flow_clarity", 0.35),
-        "flow": weights.get("flow_clarity", weights.get("space_utilization", 0.15)),
-        "throughput": weights.get("throughput_time", 0.20),
+        "distance": weights.get("transportation_intensity", 0.20),
+        "logistics": weights.get("material_flow_clarity", 0.30),
+        "flow": weights.get("flow_clarity", weights.get("space_utilization", 0.20)),
+        "throughput": weights.get("throughput_time", 0.25),
         "utilization": weights.get("utilization", 0.05),
     }
     total_weight = sum(weight_components.values()) or 1.0
@@ -166,7 +199,7 @@ def main():
         type=Path,
         help="Simulation config file",
     )
-    parser.add_argument("--duration", type=float, default=28800, help="Simulation duration")
+    parser.add_argument("--duration", type=float, default=2000, help="Simulation duration (default: 2000 to match main.py)")
     parser.add_argument(
         "--output",
         type=Path,
@@ -184,11 +217,13 @@ def main():
     env.reset()
     build_flow_clarity_helper(env, placements)
 
+    # 注意：detail 参数不影响奖励计算，只影响返回的数据结构
+    # 使用 detail=True 以获取完整数据用于 CSV 保存
     metrics_result = compute_metrics(
         config_path=config_path,
         duration=args.duration,
         layout_path=layout_path,
-        detail=True,
+        detail=True,  # 需要详细信息用于 CSV 保存
     )
     rewards = compute_rewards(metrics_result["summary"], env)
 

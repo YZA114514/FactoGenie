@@ -90,6 +90,45 @@ if __name__ == "__main__":
         default=0.9,
         help="奖励分解时的折扣因子，仅discount模式有效"
     )
+    # 奖励权重参数 权重会自动归一化，不需要手动归一化
+    parser.add_argument(
+        "--weight_distance",
+        type=float,
+        default=0.20,
+        help="运输距离权重 (transportation_intensity)"
+    )
+    parser.add_argument(
+        "--weight_logistics",
+        type=float,
+        default=0.30,
+        help="物流强度权重 (material_flow_clarity)"
+    )
+    parser.add_argument(
+        "--weight_flow",
+        type=float,
+        default=0.20,
+        help="物料流清晰度权重 (flow_clarity/space_utilization)"
+    )
+    parser.add_argument(
+        "--weight_throughput",
+        type=float,
+        default=0.25,
+        help="吞吐量权重 (throughput_time)"
+    )
+    parser.add_argument(
+        "--weight_utilization",
+        type=float,
+        default=0.05,
+        help="设备利用率权重 (utilization)"
+    )
+    # 摆放顺序参数
+    parser.add_argument(
+        "--placement_order",
+        type=str,
+        choices=["default" , "process_flow", "logistics_intensity", "size_desc", "size_asc", "flow_desc", "random"],
+        default="default",
+        help="摆放顺序: default(配置文件顺序), process_flow(按工艺流程), logistics_intensity(按物流强度), size_desc(面积从大到小), size_asc(面积从小到大), flow_desc(物料连接数从多到少), random(随机)"
+    )
     args = parser.parse_args()
 
     train(args)

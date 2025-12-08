@@ -30,11 +30,28 @@ def train(params):
 
     # 创建环境（默认不使用仿真以加速训练）
     simulation_duration = getattr(params, 'simulation_duration', 20000)
+    
+    # 构建奖励权重字典
+    objective_weights = {
+        'transportation_intensity': getattr(params, 'weight_distance', 0.20),
+        'material_flow_clarity': getattr(params, 'weight_logistics', 0.30),
+        'space_utilization': getattr(params, 'weight_flow', 0.20),  # flow_clarity uses space_utilization key
+        'throughput_time': getattr(params, 'weight_throughput', 0.25),
+        'utilization': getattr(params, 'weight_utilization', 0.05),
+    }
+    
+    # 获取摆放顺序
+    placement_order = getattr(params, 'placement_order', 'default')
+    
     env = FactoryEnv(
         use_simulation=params.use_simulation,
-        simulation_duration=simulation_duration
+        simulation_duration=simulation_duration,
+        objective_weights=objective_weights,
+        placement_order=placement_order
     )
     print(f"Environment: use_simulation={params.use_simulation}, simulation_duration={simulation_duration}")
+    print(f"Objective weights: {objective_weights}")
+    print(f"Placement order: {placement_order}")
     
     model_cls = DuelingDQN if params.use_dueling else DQN
 
@@ -92,6 +109,14 @@ def train(params):
         ("use_simulation", "sim"),
         ("reward_decompose", "rdc"),
         ("reward_gamma", "rg"),
+        # 奖励权重参数
+        ("weight_distance", "wd"),
+        ("weight_logistics", "wl"),
+        ("weight_flow", "wf"),
+        ("weight_throughput", "wt"),
+        ("weight_utilization", "wu"),
+        # 摆放顺序参数
+        ("placement_order", "po"),
     ]
 
     run_components = []

@@ -27,7 +27,9 @@ class FactoryEnv:
         self,
         config_path: str = "simulation/configs/chair_factory.json",
         use_simulation: bool = False,  # 默认关闭仿真，加速训练
-        simulation_duration: float = 20000  # 1天 = 20000时间单位（400个椅子/天）
+        simulation_duration: float = 20000,  # 1天 = 20000时间单位（400个椅子/天）
+        objective_weights: dict = None,  # 自定义奖励权重
+        placement_order: str = "default"  # 摆放顺序策略
     ):
         """
         初始化包装器环境
@@ -36,12 +38,21 @@ class FactoryEnv:
             config_path: 仿真配置文件路径
             use_simulation: 是否使用仿真计算奖励
             simulation_duration: 仿真时长（1天 = 20000时间单位，产能400个椅子/天）
+            objective_weights: 自定义奖励权重字典，如 {'transportation_intensity': 0.2, ...}
+            placement_order: 摆放顺序策略
+                - 'default': 配置文件中的顺序
+                - 'size_desc': 按面积从大到小
+                - 'size_asc': 按面积从小到大
+                - 'flow_desc': 按物料流连接数从多到少
+                - 'random': 随机顺序
         """
         # 创建底层环境
         self.env = LayoutEnvironment.from_config(
             config_path=config_path,
             use_simulation=use_simulation,
-            simulation_duration=simulation_duration
+            simulation_duration=simulation_duration,
+            objective_weights=objective_weights,
+            placement_order=placement_order
         )
         
         # 保存环境参数

@@ -155,8 +155,14 @@ class LayoutEnvironment:
             self.metrics_log_header_written = self.metrics_log_path.exists()
     
     @classmethod
-    def from_config(cls, config_path: str, use_simulation: bool = True, 
-                   simulation_duration: float = 20000) -> 'LayoutEnvironment':
+    def from_config(
+        cls, 
+        config_path: str, 
+        use_simulation: bool = True, 
+        simulation_duration: float = 20000,
+        objective_weights: Optional[Dict[str, float]] = None,
+        placement_order: str = "default"
+    ) -> 'LayoutEnvironment':
         """
         从配置文件创建环境实例
         
@@ -164,20 +170,68 @@ class LayoutEnvironment:
             config_path: 仿真配置文件路径 (如 'simulation/configs/chair_factory.json')
             use_simulation: 是否使用仿真计算奖励
             simulation_duration: 仿真时长
+            objective_weights: 自定义奖励权重（如果为None则使用配置文件默认值）
+            placement_order: 摆放顺序策略
+                - 'default': 配置文件中的顺序
+                - 'size_desc': 按面积从大到小
+                - 'size_asc': 按面积从小到大
+                - 'flow_desc': 按物料流连接数从多到少
+                - 'random': 随机顺序
             
         Returns:
             LayoutEnvironment 实例
         """
         from .config_loader import ConfigLoader
+        import random
         
         loader = ConfigLoader(config_path)
         functional_units = loader.get_functional_units()
+        material_flow = loader.get_material_flow(functional_units)
+        
+        # 根据 placement_order 对功能单元进行排序
+        if placement_order == "size_desc":
+            # 按面积从大到小排序
+            functional_units = sorted(
+                functional_units, 
+                key=lambda u: u['size'][0] * u['size'][1], 
+                reverse=True
+            )
+        elif placement_order == "size_asc":
+            # 按面积从小到大排序
+            functional_units = sorted(
+                functional_units, 
+                key=lambda u: u['size'][0] * u['size'][1], 
+                reverse=False
+            )
+        elif placement_order == "flow_desc":
+            # 按物料流连接数从多到少排序
+            # 创建 id 到原始索引的映射
+            id_to_orig_idx = {u['id']: i for i, u in enumerate(loader.get_functional_units())}
+            
+            def get_flow_count(unit):
+                orig_idx = id_to_orig_idx.get(unit['id'], 0)
+                # 计算该单元的入流和出流连接数
+                inflow = sum(material_flow[:, orig_idx]) if orig_idx < material_flow.shape[1] else 0
+                outflow = sum(material_flow[orig_idx, :]) if orig_idx < material_flow.shape[0] else 0
+                return inflow + outflow
+            
+            functional_units = sorted(functional_units, key=get_flow_count, reverse=True)
+        elif placement_order == "random":
+            # 随机打乱顺序
+            random.shuffle(functional_units)
+        # else: "default" - 保持原始顺序
+        
+        # 排序后需要重新计算物料流矩阵（因为索引变了）
+        material_flow = loader.get_material_flow(functional_units)
+        
+        # 使用自定义权重或配置文件默认权重
+        weights = objective_weights if objective_weights is not None else loader.get_objective_weights()
         
         return cls(
             grid_size=loader.get_factory_size(),
             functional_units=functional_units,
-            material_flow=loader.get_material_flow(functional_units),
-            objective_weights=loader.get_objective_weights(),
+            material_flow=material_flow,
+            objective_weights=weights,
             placement_constraints=loader.get_placement_constraints(),
             use_simulation=use_simulation,
             config_path=config_path,

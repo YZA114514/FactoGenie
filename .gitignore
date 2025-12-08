@@ -1,3 +1,7 @@
 logs
 *logs/
 __pycache__/
+analysis/
+simulation/__pycache__/
+environment/__pycache__/
+tools/
