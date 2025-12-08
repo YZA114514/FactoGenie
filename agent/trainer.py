@@ -1,6 +1,8 @@
 import csv
 import hashlib
+import json
 import re
+import shutil
 from pathlib import Path
 import numpy as np
 from tqdm import tqdm
@@ -18,6 +20,79 @@ from environment.gym_wrapper import FactoryEnv
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 from visualize_layouts import LayoutVisualizer
+
+
+# 默认布局文件路径
+DEFAULT_LAYOUT_PATH = Path("simulation/layouts/chair_layout.json")
+EXPERIMENT_LAYOUTS_DIR = Path("simulation/layouts/experiments")
+
+
+def _create_experiment_layout(params) -> str:
+    """
+    为当前实验创建专用的布局文件，避免并行实验时的冲突。
+    
+    Args:
+        params: 实验参数
+    
+    Returns:
+        实验专用布局文件的路径
+    """
+    # 生成实验唯一标识符（基于关键参数）
+    key_params = [
+        f"po_{getattr(params, 'placement_order', 'default')}",
+        f"wd_{getattr(params, 'weight_distance', 0.20):.2f}",
+        f"wl_{getattr(params, 'weight_logistics', 0.30):.2f}",
+        f"wf_{getattr(params, 'weight_flow', 0.20):.2f}",
+        f"wt_{getattr(params, 'weight_throughput', 0.25):.2f}",
+        f"wu_{getattr(params, 'weight_utilization', 0.05):.2f}",
+        f"sim_{getattr(params, 'use_simulation', True)}",
+        f"dur_{getattr(params, 'simulation_duration', 2000)}",
+    ]
+    # 添加时间戳和进程ID确保唯一性
+    import os
+    import time
+    key_params.append(f"pid_{os.getpid()}")
+    key_params.append(f"ts_{int(time.time() * 1000) % 100000}")
+    
+    experiment_id = "__".join(key_params)
+    # 对长名称进行哈希处理
+    if len(experiment_id) > 100:
+        digest = hashlib.md5(experiment_id.encode("utf-8")).hexdigest()[:12]
+        experiment_id = f"{experiment_id[:80]}_{digest}"
+    
+    # 清理文件名中的非法字符
+    experiment_id = re.sub(r"[^0-9A-Za-z_\-\.]", "_", experiment_id)
+    
+    # 创建实验专用布局目录
+    EXPERIMENT_LAYOUTS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # 实验专用布局文件路径
+    experiment_layout_path = EXPERIMENT_LAYOUTS_DIR / f"{experiment_id}.json"
+    
+    # 复制默认布局文件作为初始值
+    if DEFAULT_LAYOUT_PATH.exists():
+        shutil.copy(DEFAULT_LAYOUT_PATH, experiment_layout_path)
+        print(f"Created experiment layout: {experiment_layout_path}")
+    else:
+        raise FileNotFoundError(f"Default layout file not found: {DEFAULT_LAYOUT_PATH}")
+    
+    return str(experiment_layout_path)
+
+
+def _cleanup_experiment_layout(layout_path: str) -> None:
+    """
+    清理实验结束后的布局文件（可选）。
+    
+    Args:
+        layout_path: 实验专用布局文件路径
+    """
+    try:
+        layout_file = Path(layout_path)
+        if layout_file.exists() and EXPERIMENT_LAYOUTS_DIR in layout_file.parents:
+            layout_file.unlink()
+            print(f"Cleaned up experiment layout: {layout_path}")
+    except Exception as e:
+        print(f"Warning: Failed to cleanup layout file: {e}")
 
 
 def train(params):
@@ -43,15 +118,20 @@ def train(params):
     # 获取摆放顺序
     placement_order = getattr(params, 'placement_order', 'default')
     
+    # 创建实验专用的布局文件（用于并行实验隔离）
+    experiment_layout_path = _create_experiment_layout(params)
+    
     env = FactoryEnv(
         use_simulation=params.use_simulation,
         simulation_duration=simulation_duration,
         objective_weights=objective_weights,
-        placement_order=placement_order
+        placement_order=placement_order,
+        layout_path=experiment_layout_path
     )
     print(f"Environment: use_simulation={params.use_simulation}, simulation_duration={simulation_duration}")
     print(f"Objective weights: {objective_weights}")
     print(f"Placement order: {placement_order}")
+    print(f"Layout file: {experiment_layout_path}")
     
     model_cls = DuelingDQN if params.use_dueling else DQN
 

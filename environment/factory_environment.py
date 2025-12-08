@@ -161,7 +161,8 @@ class LayoutEnvironment:
         use_simulation: bool = True, 
         simulation_duration: float = 20000,
         objective_weights: Optional[Dict[str, float]] = None,
-        placement_order: str = "default"
+        placement_order: str = "default",
+        layout_path: Optional[str] = None
     ) -> 'LayoutEnvironment':
         """
         从配置文件创建环境实例
@@ -177,6 +178,9 @@ class LayoutEnvironment:
                 - 'size_asc': 按面积从小到大
                 - 'flow_desc': 按物料流连接数从多到少
                 - 'random': 随机顺序
+                - 'process_flow': 按工艺流程顺序 (rec_dock→central_store→station_1→station_3→station_2→station_4→ship_dock→obstacles)
+                - 'logistics_intensity': 按物流强度顺序 (station_4→station_3→station_2→central_store→station_1→rec_dock→ship_dock→obstacles)
+            layout_path: 自定义布局文件路径（用于并行实验隔离），如果为None则使用配置文件中的默认路径
             
         Returns:
             LayoutEnvironment 实例
@@ -184,7 +188,7 @@ class LayoutEnvironment:
         from .config_loader import ConfigLoader
         import random
         
-        loader = ConfigLoader(config_path)
+        loader = ConfigLoader(config_path, layout_path=layout_path)
         functional_units = loader.get_functional_units()
         material_flow = loader.get_material_flow(functional_units)
         
@@ -219,6 +223,40 @@ class LayoutEnvironment:
         elif placement_order == "random":
             # 随机打乱顺序
             random.shuffle(functional_units)
+        elif placement_order == "process_flow":
+            # 按工艺流程顺序：rec_dock → central_store → station_1 → station_3 → station_2 → station_4 → ship_dock → obstacles
+            process_order = [
+                'rec_dock', 'central_store', 'station_1', 'station_3', 
+                'station_2', 'station_4', 'ship_dock',
+                'obstacle_2', 'obstacle_3', 'obstacle_4', 'obstacle_5'
+            ]
+            id_to_unit = {u['id']: u for u in functional_units}
+            sorted_units = []
+            for unit_id in process_order:
+                if unit_id in id_to_unit:
+                    sorted_units.append(id_to_unit[unit_id])
+            # 添加任何未在预定义顺序中的单元
+            for u in functional_units:
+                if u['id'] not in process_order:
+                    sorted_units.append(u)
+            functional_units = sorted_units
+        elif placement_order == "logistics_intensity":
+            # 按物流强度顺序：station_4 → station_3 → station_2 → central_store → station_1 → rec_dock → ship_dock → obstacles
+            logistics_order = [
+                'station_4', 'station_3', 'station_2', 'central_store',
+                'station_1', 'rec_dock', 'ship_dock',
+                'obstacle_2', 'obstacle_3', 'obstacle_4', 'obstacle_5'
+            ]
+            id_to_unit = {u['id']: u for u in functional_units}
+            sorted_units = []
+            for unit_id in logistics_order:
+                if unit_id in id_to_unit:
+                    sorted_units.append(id_to_unit[unit_id])
+            # 添加任何未在预定义顺序中的单元
+            for u in functional_units:
+                if u['id'] not in logistics_order:
+                    sorted_units.append(u)
+            functional_units = sorted_units
         # else: "default" - 保持原始顺序
         
         # 排序后需要重新计算物料流矩阵（因为索引变了）
@@ -327,7 +365,7 @@ class LayoutEnvironment:
         if len(valid_actions) == 0:
             # 没有有效动作可用，直接结束episode，避免进入仿真
             print(f"⚠️ 步骤 {self.current_unit_idx + 1}: 没有有效动作，提前结束episode")
-            reward = -1.5  # 严重惩罚，鼓励agent学习避免这种情况
+            reward = -10.0  # 严重惩罚，鼓励agent学习避免这种情况
             done = True
             
             info = {
