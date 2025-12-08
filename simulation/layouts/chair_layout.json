@@ -11,9 +11,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 25,
-      "y": 4,
-      "angle": 180
+      "x": 31,
+      "y": 0,
+      "angle": 270
     },
     {
       "id": "central_store",
@@ -21,9 +21,9 @@
       "width": 6,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 20,
-      "y": 10,
-      "angle": 180
+      "x": 14,
+      "y": 1,
+      "angle": 0
     },
     {
       "id": "station_1",
@@ -31,8 +31,8 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 8,
-      "y": 11,
+      "x": 13,
+      "y": 10,
       "angle": 180
     },
     {
@@ -41,9 +41,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 23,
-      "y": 14,
-      "angle": 180
+      "x": 18,
+      "y": 7,
+      "angle": 0
     },
     {
       "id": "station_3",
@@ -51,7 +51,7 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 15,
+      "x": 13,
       "y": 14,
       "angle": 180
     },
@@ -61,9 +61,9 @@
       "width": 8,
       "notch_length": 4,
       "notch_width": 4,
-      "x": 33,
-      "y": 3,
-      "angle": 270
+      "x": 13,
+      "y": 8,
+      "angle": 0
     },
     {
       "id": "ship_dock",
@@ -71,9 +71,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 0,
-      "y": 16,
-      "angle": 90
+      "x": 2,
+      "y": 14,
+      "angle": 0
     }
   ],
   "obstacles": [
@@ -93,9 +93,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 4,
-      "y": 7,
-      "angle": 90
+      "x": 7,
+      "y": 0,
+      "angle": 270
     },
     {
       "id": "obstacle_3",
@@ -103,9 +103,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 10,
+      "x": 1,
       "y": 14,
-      "angle": 0
+      "angle": 90
     },
     {
       "id": "obstacle_4",
@@ -113,9 +113,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 16,
-      "y": 4,
-      "angle": 180
+      "x": 32,
+      "y": 6,
+      "angle": 270
     },
     {
       "id": "obstacle_5",
@@ -123,9 +123,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 35,
-      "y": 4,
-      "angle": 180
+      "x": 34,
+      "y": 5,
+      "angle": 0
     }
   ]
 }
