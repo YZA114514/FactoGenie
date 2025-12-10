@@ -284,6 +284,55 @@ def train(params):
     layout_save_interval = 400
     episode_counter = 0
     print(f"布局将保存到: {run_dir / 'layouts'}，每 {layout_save_interval} 次 episode 保存一次")
+    
+    # 检查点保存配置
+    checkpoint_interval = getattr(params, 'checkpoint_interval', 0)
+    checkpoint_dir = run_dir / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    best_reward = -float("inf")
+    
+    if checkpoint_interval > 0:
+        print(f"检查点将保存到: {checkpoint_dir}，每 {checkpoint_interval} 次 episode 保存一次")
+    
+    def save_checkpoint(episode: int, reward: float, is_best: bool = False):
+        """保存检查点：模型权重 + 布局 + 指标"""
+        prefix = "best" if is_best else f"ep{episode}"
+        
+        # 1. 保存模型权重
+        model_path = checkpoint_dir / f"model_{prefix}.pth"
+        torch.save({
+            'episode': episode,
+            'model_state_dict': net.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'reward': reward,
+            'epsilon': epsilon,
+        }, model_path)
+        
+        # 2. 保存布局快照
+        layout_path = getattr(env.env, "layout_path", None)
+        if layout_path and Path(layout_path).exists():
+            layout_snapshot_path = checkpoint_dir / f"layout_{prefix}.json"
+            shutil.copy(layout_path, layout_snapshot_path)
+        
+        # 3. 保存指标
+        metrics_path = checkpoint_dir / f"metrics_{prefix}.json"
+        metrics_data = {
+            'episode': episode,
+            'reward': reward,
+            'mean_reward_200': np.mean(total_rewards[-200:]) if total_rewards else 0,
+            'epsilon': epsilon,
+            'frame_idx': frame_idx,
+            'is_best': is_best,
+        }
+        # 如果有仿真指标，也保存
+        if hasattr(env.env, 'last_metrics') and env.env.last_metrics:
+            metrics_data['simulation_metrics'] = env.env.last_metrics
+        
+        with open(metrics_path, 'w') as f:
+            json.dump(metrics_data, f, indent=2)
+        
+        tag = "🏆 BEST" if is_best else ""
+        print(f"  [Checkpoint] {prefix} saved (reward: {reward:.3f}) {tag}")
 
     def update_plot(history, ax, fig, title, xlabel, ylabel, output_path):
         if not history:
@@ -329,6 +378,17 @@ def train(params):
                     print(f"  [Episode {episode_counter}] 布局已保存 (奖励: {value:.2f})")
             except Exception as e:
                 print(f"  [Episode {episode_counter}] 保存布局时出错: {e}")
+        
+        # 检查点保存
+        nonlocal best_reward
+        if checkpoint_interval > 0 and episode_counter % checkpoint_interval == 0:
+            save_checkpoint(episode_counter, value, is_best=False)
+        
+        # 保存最佳检查点
+        if value > best_reward:
+            best_reward = value
+            if checkpoint_interval > 0:
+                save_checkpoint(episode_counter, value, is_best=True)
 
     def log_loss(step, value):
         loss_history.append((step, value))

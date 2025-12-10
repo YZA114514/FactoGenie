@@ -163,19 +163,35 @@ class ConfigLoader:
         """
         获取摆放约束规则
         
-        约束规则已简化，现在只在_is_valid_action中直接检查：
-        1. 不超出边界
-        2. 不重叠
-        3. rec_dock和ship_dock必须贴墙
+        从布局配置文件读取约束规则，支持：
+        - fixed_positions: 固定位置约束
+        - adjacency: 相邻约束
+        - wall_attach: 贴墙约束
         
         Returns:
-            约束规则字典（保留接口兼容性，实际约束在environment中硬编码）
+            约束规则字典
         """
         constraints = {
-            'min_distance': 0,  # 已移除此约束
-            'wall_units': ['rec_dock', 'ship_dock'],  # 仅供参考，实际在environment中硬编码
-            'restricted_areas': [],  # 已移除此约束
+            'min_distance': 0,
+            'wall_units': ['rec_dock', 'ship_dock'],  # 默认贴墙单元
+            'restricted_areas': [],
+            'fixed_positions': [],   # [{unit_id, x, y, angle}, ...]
+            'adjacency': [],         # [{unit_a, unit_b, direction}, ...]
+            'wall_attach': [],       # [{unit_id, wall}, ...]
         }
+        
+        # 从布局配置中读取自定义约束
+        if self.layout_config and 'constraints' in self.layout_config:
+            user_constraints = self.layout_config['constraints']
+            
+            if 'fixed_positions' in user_constraints:
+                constraints['fixed_positions'] = user_constraints['fixed_positions']
+            
+            if 'adjacency' in user_constraints:
+                constraints['adjacency'] = user_constraints['adjacency']
+            
+            if 'wall_attach' in user_constraints:
+                constraints['wall_attach'] = user_constraints['wall_attach']
         
         return constraints
     

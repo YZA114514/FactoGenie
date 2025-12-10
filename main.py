@@ -142,6 +142,13 @@ if __name__ == "__main__":
         default=None,
         help="用户指定的吞吐量目标（产品数）。如果不指定，则通过校准自动估计"
     )
+    # 检查点保存参数
+    parser.add_argument(
+        "--checkpoint_interval",
+        type=int,
+        default=0,
+        help="每多少个episode保存一次检查点（模型权重+布局+指标）。0表示不保存中间检查点，只保存最终结果"
+    )
     args = parser.parse_args()
 
     train(args)

@@ -120,10 +120,28 @@ class LayoutEnvironment:
             objective_weights = {'transportation_intensity': 1.0}
         self.objective_weights = objective_weights
         
-        # 摆放约束
+        # 摆放约束（扩展格式）
         if placement_constraints is None:
-            placement_constraints = {'min_distance': 0, 'wall_units': [], 'restricted_areas': []}
+            placement_constraints = {
+                'min_distance': 0,
+                'wall_units': [],           # 旧格式保持兼容
+                'restricted_areas': [],
+                'fixed_positions': [],      # 固定位置约束: [{unit_id, x, y, angle}, ...]
+                'adjacency': [],            # 相邻约束: [{unit_a, unit_b, direction}, ...]
+                'wall_attach': [],          # 贴墙约束: [{unit_id, wall}, ...]
+            }
         self.placement_constraints = placement_constraints
+        
+        # 预处理约束：建立快速查找表
+        self._fixed_position_map = {}  # unit_id -> {x, y, angle}
+        for fp in placement_constraints.get('fixed_positions', []):
+            self._fixed_position_map[fp['unit_id']] = fp
+        
+        self._wall_attach_map = {}  # unit_id -> wall ('top'|'bottom'|'left'|'right')
+        for wa in placement_constraints.get('wall_attach', []):
+            self._wall_attach_map[wa['unit_id']] = wa['wall']
+        
+        self._adjacency_constraints = placement_constraints.get('adjacency', [])
         
         self.use_simulation = use_simulation
         self.config_path = config_path
@@ -330,8 +348,12 @@ class LayoutEnvironment:
         # 已放置的功能单元
         self.placed_units = []  # [(unit_id, x, y, rotation), ...]
         
-        # 当前要放置的功能单元索引
+        # 预先放置有固定位置约束的单元
+        self._place_fixed_position_units()
+        
+        # 当前要放置的功能单元索引（跳过已固定放置的单元）
         self.current_unit_idx = 0
+        self._skip_fixed_units()
         
         # 累积奖励
         self.episode_reward = 0.0
@@ -379,6 +401,171 @@ class LayoutEnvironment:
             for cx, cy in occupied_cells:
                 if 0 <= cx < self.nx and 0 <= cy < self.ny:
                     self.layout_grid[cx, cy] = -1
+    
+    def _place_fixed_position_units(self) -> None:
+        """
+        预先放置有固定位置约束的功能单元
+        这些单元不参与Agent的决策，在reset时直接放置
+        """
+        if not self._fixed_position_map:
+            return
+        
+        for unit_idx, unit in enumerate(self.functional_units):
+            unit_id = unit.get('id', unit.get('name', ''))
+            
+            if unit_id not in self._fixed_position_map:
+                continue
+            
+            fp = self._fixed_position_map[unit_id]
+            x = int(fp['x'])
+            y = int(fp['y'])
+            angle = int(fp.get('angle', 0))
+            
+            # 获取占用的单元格
+            occupied_cells, _ = self._get_occupied_cells(unit, x, y, angle)
+            
+            if not occupied_cells:
+                print(f"警告: 无法放置固定单元 {unit_id}，跳过")
+                continue
+            
+            # 在网格上标记
+            for cx, cy in occupied_cells:
+                if 0 <= cx < self.nx and 0 <= cy < self.ny:
+                    self.layout_grid[cx, cy] = unit_idx + 1
+            
+            # 记录放置信息
+            self.placed_units.append((unit_id, x, y, angle))
+            print(f"[固定约束] 预放置单元 {unit_id} 在 ({x}, {y}) 角度 {angle}°")
+    
+    def _skip_fixed_units(self) -> None:
+        """
+        跳过已经通过固定位置约束放置的单元
+        """
+        while self.current_unit_idx < self.num_units:
+            unit = self.functional_units[self.current_unit_idx]
+            unit_id = unit.get('id', unit.get('name', ''))
+            
+            if unit_id in self._fixed_position_map:
+                self.current_unit_idx += 1
+            else:
+                break
+    
+    def _check_wall_attach_constraint(self, unit_id: str, x: int, y: int, 
+                                       width: int, height: int) -> bool:
+        """
+        检查贴墙约束是否满足
+        
+        Args:
+            unit_id: 单元ID
+            x, y: 位置
+            width, height: 尺寸（旋转后）
+            
+        Returns:
+            是否满足贴墙约束（无约束返回True）
+        """
+        if unit_id not in self._wall_attach_map:
+            return True
+        
+        required_wall = self._wall_attach_map[unit_id]
+        
+        if required_wall == 'left':
+            return x == 0
+        elif required_wall == 'right':
+            return x + width == self.nx
+        elif required_wall == 'bottom':
+            return y == 0
+        elif required_wall == 'top':
+            return y + height == self.ny
+        
+        return True
+    
+    def _check_adjacency_constraints(self) -> bool:
+        """
+        检查所有相邻约束是否满足（在所有单元放置完成后调用）
+        
+        Returns:
+            是否所有相邻约束都满足
+        """
+        if not self._adjacency_constraints:
+            return True
+        
+        # 构建已放置单元的位置映射
+        unit_positions = {}  # unit_id -> (x, y, width, height)
+        for unit_id, x, y, rotation in self.placed_units:
+            # 找到对应的单元配置
+            unit = None
+            for u in self.functional_units:
+                if u.get('id', u.get('name', '')) == unit_id:
+                    unit = u
+                    break
+            
+            if unit is None:
+                continue
+            
+            # 获取旋转后的尺寸
+            length = unit['size'][0]
+            width = unit['size'][1]
+            if rotation in [90, 270]:
+                length, width = width, length
+            
+            unit_positions[unit_id] = (x, y, length, width)
+        
+        # 检查每个相邻约束
+        for constraint in self._adjacency_constraints:
+            unit_a = constraint['unit_a']
+            unit_b = constraint['unit_b']
+            direction = constraint.get('direction', 'any')
+            
+            if unit_a not in unit_positions or unit_b not in unit_positions:
+                # 某个单元未放置，约束无法满足
+                return False
+            
+            pos_a = unit_positions[unit_a]
+            pos_b = unit_positions[unit_b]
+            
+            if not self._are_adjacent(pos_a, pos_b, direction):
+                print(f"[约束违反] {unit_a} 和 {unit_b} 不相邻 (要求: {direction})")
+                return False
+        
+        return True
+    
+    def _are_adjacent(self, pos_a: tuple, pos_b: tuple, direction: str = 'any') -> bool:
+        """
+        检查两个单元是否相邻
+        
+        Args:
+            pos_a: (x, y, width, height)
+            pos_b: (x, y, width, height)
+            direction: 'horizontal'|'vertical'|'any'
+            
+        Returns:
+            是否相邻
+        """
+        x1, y1, w1, h1 = pos_a
+        x2, y2, w2, h2 = pos_b
+        
+        # 水平相邻：A的右边紧贴B的左边，或反之
+        horizontal_adjacent = (
+            (x1 + w1 == x2 and self._ranges_overlap(y1, y1 + h1, y2, y2 + h2)) or
+            (x2 + w2 == x1 and self._ranges_overlap(y1, y1 + h1, y2, y2 + h2))
+        )
+        
+        # 垂直相邻：A的上边紧贴B的下边，或反之
+        vertical_adjacent = (
+            (y1 + h1 == y2 and self._ranges_overlap(x1, x1 + w1, x2, x2 + w2)) or
+            (y2 + h2 == y1 and self._ranges_overlap(x1, x1 + w1, x2, x2 + w2))
+        )
+        
+        if direction == 'horizontal':
+            return horizontal_adjacent
+        elif direction == 'vertical':
+            return vertical_adjacent
+        else:  # 'any'
+            return horizontal_adjacent or vertical_adjacent
+    
+    def _ranges_overlap(self, a_min: int, a_max: int, b_min: int, b_max: int) -> bool:
+        """检查两个范围是否有重叠"""
+        return a_min < b_max and b_min < a_max
     
     def step(self, action: Dict) -> Tuple[Dict, float, bool, Dict]:
         """
@@ -433,25 +620,45 @@ class LayoutEnvironment:
         # 放置功能单元
         self._place_unit(unit, x, y, rotation)
         
-        # 计算奖励（如果是最后一个单元，则运行仿真）
-        is_last_unit = (self.current_unit_idx == self.num_units - 1)
-        reward = self._calculate_reward(is_last_unit)
-        
-        # 更新状态
+        # 更新状态索引
         self.current_unit_idx += 1
+        
+        # 跳过已通过固定约束放置的单元
+        self._skip_fixed_units()
+        
+        # 判断是否完成
         done = (self.current_unit_idx >= self.num_units)
         
-        # 获取下一个状态
-        next_state = self._get_state()
+        # 计算奖励（如果是最后一个单元，则运行仿真）
+        is_last_unit = done
         
         info = {
             'placed_units': len(self.placed_units),
             'total_units': self.num_units
         }
+        
+        # 如果完成，检查相邻约束
+        if done and self._adjacency_constraints:
+            if not self._check_adjacency_constraints():
+                # 相邻约束不满足，布局无效
+                reward = -5.0  # 惩罚
+                info['error'] = 'Adjacency constraints not satisfied'
+                info['constraint_violation'] = True
+                print(f"⚠️ 布局完成但相邻约束不满足，奖励={reward}")
+            else:
+                reward = self._calculate_reward(is_last_unit)
+        else:
+            reward = self._calculate_reward(is_last_unit)
+        
+        # 获取下一个状态
+        next_state = self._get_state()
+        
         if done:
             extra_flags = {}
             if info.get('early_termination'):
                 extra_flags['early_termination'] = True
+            if info.get('constraint_violation'):
+                extra_flags['constraint_violation'] = True
             if 'error' in info:
                 extra_flags['error'] = info['error']
             metrics_payload = self._record_episode_metrics(
@@ -659,16 +866,32 @@ class LayoutEnvironment:
             if self.layout_grid[pos_x, pos_y] != 0:
                 return False
         
-        # 3. 检查接收/输出仓库的贴墙约束
+        # 3. 检查贴墙约束
         unit_id = unit.get('id', unit.get('name', ''))
+        
+        # 3a. 默认约束：rec_dock 和 ship_dock 必须贴墙
         if unit_id in ['rec_dock', 'ship_dock']:
-            # 这两个单元必须至少有一边贴墙（使用实际占用区域的边界）
             at_left = (actual_x_min == 0)
             at_right = (actual_x_max == self.nx)
             at_bottom = (actual_y_min == 0)
             at_top = (actual_y_max == self.ny)
             
             if not (at_left or at_right or at_bottom or at_top):
+                return False
+        
+        # 3b. 用户自定义贴墙约束
+        if unit_id in self._wall_attach_map:
+            required_wall = self._wall_attach_map[unit_id]
+            width = actual_x_max - actual_x_min
+            height = actual_y_max - actual_y_min
+            
+            if required_wall == 'left' and actual_x_min != 0:
+                return False
+            elif required_wall == 'right' and actual_x_max != self.nx:
+                return False
+            elif required_wall == 'bottom' and actual_y_min != 0:
+                return False
+            elif required_wall == 'top' and actual_y_max != self.ny:
                 return False
         
         return True

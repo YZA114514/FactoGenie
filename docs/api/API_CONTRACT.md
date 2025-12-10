@@ -129,27 +129,52 @@ interface Obstacle {
 
 ```typescript
 interface Constraints {
-  fixed_positions: FixedPosition[];   // 固定位置
-  adjacency: AdjacencyConstraint[];   // 相邻约束
-  wall_attach: WallAttachConstraint[]; // 贴墙约束
+  fixed_positions: FixedPosition[];   // 固定位置（硬约束）
+  adjacency: AdjacencyConstraint[];   // 相邻约束（硬约束）
+  wall_attach: WallAttachConstraint[]; // 贴墙约束（硬约束）
 }
 
 interface FixedPosition {
-  unit_id: string;
-  x: number;
-  y: number;
-  angle: number;
+  unit_id: string;   // 功能单元ID
+  x: number;         // 固定X坐标
+  y: number;         // 固定Y坐标
+  angle: number;     // 固定角度 (0, 90, 180, 270)
 }
 
 interface AdjacencyConstraint {
-  unit_a: string;
-  unit_b: string;
-  direction?: "horizontal" | "vertical" | "any";
+  unit_a: string;    // 单元A的ID
+  unit_b: string;    // 单元B的ID
+  direction?: "horizontal" | "vertical" | "any";  // 相邻方向，默认any
 }
 
 interface WallAttachConstraint {
-  unit_id: string;
-  wall: "top" | "bottom" | "left" | "right";
+  unit_id: string;   // 功能单元ID
+  wall: "top" | "bottom" | "left" | "right";  // 必须贴的墙
+}
+```
+
+**约束行为说明**：
+
+| 约束类型 | 实现方式 | 不满足时的行为 |
+|----------|----------|----------------|
+| 固定位置 | 训练开始前预先放置，Agent不参与 | - |
+| 相邻约束 | 布局完成后检查 | 奖励=-5，标记为约束违反 |
+| 贴墙约束 | 在有效动作筛选时检查 | 不满足的位置不可选 |
+
+**示例**：
+```json
+{
+  "constraints": {
+    "fixed_positions": [
+      { "unit_id": "rec_dock", "x": 0, "y": 10, "angle": 0 }
+    ],
+    "adjacency": [
+      { "unit_a": "station_1", "unit_b": "station_2", "direction": "horizontal" }
+    ],
+    "wall_attach": [
+      { "unit_id": "ship_dock", "wall": "right" }
+    ]
+  }
 }
 ```
 
