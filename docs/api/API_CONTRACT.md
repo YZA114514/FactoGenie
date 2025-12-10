@@ -23,7 +23,27 @@ WebSocket: ws://localhost:8000/api
 }
 ```
 
-### 1.3 错误码
+### 1.3 HTTP 状态码
+| 状态码 | 含义 | 说明 |
+|--------|------|------|
+| 200 | OK | 请求成功，查看 `code` 字段判断业务结果 |
+| 422 | Unprocessable Entity | 请求体格式错误或字段验证失败（FastAPI 自动返回） |
+| 500 | Internal Server Error | 服务器内部错误 |
+
+**422 响应格式**：
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "field_name"],
+      "msg": "error description",
+      "type": "error_type"
+    }
+  ]
+}
+```
+
+### 1.4 业务错误码
 | code | 说明 |
 |------|------|
 | 0 | 成功 |
@@ -33,6 +53,8 @@ WebSocket: ws://localhost:8000/api
 | 2001 | 训练任务已存在 |
 | 2002 | 训练任务不存在 |
 | 5000 | 服务器内部错误 |
+
+**注意**：HTTP 200 不代表业务成功，需检查响应体中的 `code` 字段。
 
 ---
 
