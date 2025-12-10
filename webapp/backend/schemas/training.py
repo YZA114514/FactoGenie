@@ -42,6 +42,7 @@ class TrainingParams(BaseModel):
         "size_desc", "size_asc", "flow_desc", 
         "random", "process_flow", "logistics_intensity"
     ] = "size_desc"
+    checkpoint_interval: int = 1000  # 每多少episode保存一次权重，0表示不保存
 
 
 class FixedPosition(BaseModel):

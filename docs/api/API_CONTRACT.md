@@ -189,6 +189,9 @@ interface TrainingParams {
   // 仿真参数
   simulation_duration: number;   // 默认 2000
   use_simulation: boolean;       // 默认 true
+  
+  // 检查点参数
+  checkpoint_interval: number;   // 每多少episode保存一次权重，默认 1000，0表示不保存中间过程
 }
 
 interface ObjectiveWeights {
@@ -760,7 +763,8 @@ data/
       "throughput": 0.20,
       "utilization": 0.15
     },
-    "placement_order": "size_desc"
+    "placement_order": "size_desc",
+    "checkpoint_interval": 1000
   }
 }
 ```

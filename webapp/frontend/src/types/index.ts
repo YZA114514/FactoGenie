@@ -143,6 +143,7 @@ export interface TrainingParams {
   use_simulation: boolean;
   weights: ObjectiveWeights;
   placement_order: PlacementOrder;
+  checkpoint_interval: number;  // 每多少episode保存一次权重，0表示不保存
 }
 
 // ========== 训练进度 ==========
@@ -273,5 +274,6 @@ export const DEFAULT_TRAINING_PARAMS: TrainingParams = {
     utilization: 0.15,
   },
   placement_order: 'size_desc',
+  checkpoint_interval: 1000,
 };
 
