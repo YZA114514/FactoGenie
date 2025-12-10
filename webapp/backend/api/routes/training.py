@@ -1,179 +1,289 @@
 """
 训练任务 API
 """
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from pydantic import BaseModel
-from typing import Optional, List
-import uuid
+from typing import Optional, Dict
 import asyncio
+
+from ..deps import get_project_service, get_training_service
+from ...services.project_service import ProjectService
+from ...services.training_service import TrainingService
 
 router = APIRouter()
 
 
-# ========== 请求/响应模型 ==========
+# ========== 请求模型 ==========
 
-class StartTrainingRequest(BaseModel):
+class CreateProjectRequest(BaseModel):
     name: str
     factory_config: dict
     layout_config: dict
     constraints: Optional[dict] = None
-    training_params: dict
+    training_params: Optional[dict] = None
+    description: Optional[str] = None
 
 
-class TrainingProgress(BaseModel):
-    task_id: str
-    status: str
-    current_step: int
-    total_steps: int
-    current_episode: int
-    elapsed_time: float
-    estimated_remaining: float
-    latest_metrics: Optional[dict] = None
+# ========== 项目管理 ==========
 
-
-# ========== 任务存储（临时，后续替换为数据库） ==========
-training_tasks = {}
-
-
-# ========== 路由 ==========
-
-@router.post("/start", response_model=dict)
-async def start_training(request: StartTrainingRequest):
-    """启动训练任务"""
-    task_id = str(uuid.uuid4())
-    
-    # TODO: 启动Celery异步任务
-    training_tasks[task_id] = {
-        "name": request.name,
-        "status": "pending",
-        "config": request.dict()
-    }
-    
-    return {
-        "code": 0,
-        "data": {"task_id": task_id}
-    }
-
-
-@router.post("/{task_id}/stop", response_model=dict)
-async def stop_training(task_id: str):
-    """停止训练"""
-    if task_id not in training_tasks:
-        return {"code": 2002, "message": "Task not found", "data": None}
-    
-    # TODO: 发送停止信号给Celery任务
-    training_tasks[task_id]["status"] = "stopped"
-    
-    return {
-        "code": 0,
-        "data": {"status": "stopped"}
-    }
-
-
-@router.post("/{task_id}/pause", response_model=dict)
-async def pause_training(task_id: str):
-    """暂停训练"""
-    if task_id not in training_tasks:
-        return {"code": 2002, "message": "Task not found", "data": None}
-    
-    training_tasks[task_id]["status"] = "paused"
-    return {
-        "code": 0,
-        "data": {"status": "paused"}
-    }
-
-
-@router.post("/{task_id}/resume", response_model=dict)
-async def resume_training(task_id: str):
-    """恢复训练"""
-    if task_id not in training_tasks:
-        return {"code": 2002, "message": "Task not found", "data": None}
-    
-    training_tasks[task_id]["status"] = "running"
-    return {
-        "code": 0,
-        "data": {"status": "running"}
-    }
-
-
-@router.get("/{task_id}/status", response_model=dict)
-async def get_training_status(task_id: str):
-    """获取训练状态"""
-    if task_id not in training_tasks:
-        return {"code": 2002, "message": "Task not found", "data": None}
-    
-    # TODO: 从Redis/数据库获取实际进度
-    progress = TrainingProgress(
-        task_id=task_id,
-        status=training_tasks[task_id]["status"],
-        current_step=0,
-        total_steps=50000,
-        current_episode=0,
-        elapsed_time=0,
-        estimated_remaining=0
+@router.post("/projects")
+async def create_project(
+    request: CreateProjectRequest,
+    service: ProjectService = Depends(get_project_service),
+):
+    """创建新项目"""
+    project = service.create_project(
+        name=request.name,
+        factory_config=request.factory_config,
+        layout_config=request.layout_config,
+        constraints=request.constraints,
+        training_params=request.training_params,
+        description=request.description,
     )
     
     return {
         "code": 0,
-        "data": progress.dict()
-    }
-
-
-@router.get("/records", response_model=dict)
-async def get_training_records(page: int = 1, size: int = 20):
-    """获取训练记录列表"""
-    # TODO: 从数据库查询
-    return {
-        "code": 0,
         "data": {
-            "total": 0,
-            "records": []
+            "project_id": project.id,
+            "name": project.name,
+            "status": project.status,
         }
     }
 
 
-@router.get("/records/{record_id}", response_model=dict)
-async def get_training_record(record_id: str):
-    """获取单个训练记录详情"""
-    # TODO: 从数据库查询
+@router.get("/projects")
+async def list_projects(
+    page: int = 1,
+    size: int = 20,
+    status: Optional[str] = None,
+    service: ProjectService = Depends(get_project_service),
+):
+    """获取项目列表"""
+    result = service.list_projects(page=page, size=size, status=status)
+    
+    projects_data = []
+    for p in result['projects']:
+        projects_data.append({
+            "id": p.id,
+            "name": p.name,
+            "status": p.status,
+            "current_episode": p.current_episode,
+            "total_steps": p.total_steps,
+            "best_reward": p.best_reward,
+            "created_at": p.created_at.isoformat(),
+        })
+    
     return {
         "code": 0,
-        "data": None
+        "data": {
+            "total": result['total'],
+            "page": result['page'],
+            "size": result['size'],
+            "projects": projects_data,
+        }
     }
 
 
-@router.delete("/records/{record_id}", response_model=dict)
-async def delete_training_record(record_id: str):
-    """删除训练记录"""
-    # TODO: 从数据库删除
+@router.get("/projects/{project_id}")
+async def get_project(
+    project_id: str,
+    service: ProjectService = Depends(get_project_service),
+):
+    """获取项目详情"""
+    project = service.get_project(project_id)
+    if not project:
+        return {"code": 1002, "message": "Project not found", "data": None}
+    
     return {
         "code": 0,
-        "message": "deleted"
+        "data": {
+            "id": project.id,
+            "name": project.name,
+            "description": project.description,
+            "status": project.status,
+            "factory_config": project.factory_config,
+            "layout_config": project.layout_config,
+            "constraints": project.constraints,
+            "training_params": project.training_params,
+            "current_step": project.current_step,
+            "total_steps": project.total_steps,
+            "current_episode": project.current_episode,
+            "best_reward": project.best_reward,
+            "created_at": project.created_at.isoformat(),
+            "updated_at": project.updated_at.isoformat(),
+        }
+    }
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(
+    project_id: str,
+    service: ProjectService = Depends(get_project_service),
+):
+    """删除项目"""
+    success = service.delete_project(project_id)
+    if not success:
+        return {"code": 1002, "message": "Project not found", "data": None}
+    
+    return {"code": 0, "message": "deleted", "data": None}
+
+
+# ========== 训练控制 ==========
+
+@router.post("/projects/{project_id}/start")
+async def start_training(
+    project_id: str,
+    service: TrainingService = Depends(get_training_service),
+):
+    """启动训练"""
+    result = service.start_training(project_id)
+    
+    if not result['success']:
+        return {"code": 2001, "message": result['error'], "data": None}
+    
+    return {
+        "code": 0,
+        "data": {
+            "project_id": result['project_id'],
+            "status": result['status'],
+        }
+    }
+
+
+@router.post("/projects/{project_id}/stop")
+async def stop_training(
+    project_id: str,
+    service: TrainingService = Depends(get_training_service),
+):
+    """停止训练"""
+    result = service.stop_training(project_id)
+    
+    if not result['success']:
+        return {"code": 2002, "message": result['error'], "data": None}
+    
+    return {
+        "code": 0,
+        "data": {"status": result['status']}
+    }
+
+
+@router.post("/projects/{project_id}/pause")
+async def pause_training(
+    project_id: str,
+    service: TrainingService = Depends(get_training_service),
+):
+    """暂停训练"""
+    result = service.pause_training(project_id)
+    
+    if not result['success']:
+        return {"code": 2002, "message": result['error'], "data": None}
+    
+    return {
+        "code": 0,
+        "data": {"status": result['status']}
+    }
+
+
+@router.post("/projects/{project_id}/resume")
+async def resume_training(
+    project_id: str,
+    service: TrainingService = Depends(get_training_service),
+):
+    """恢复训练"""
+    result = service.resume_training(project_id)
+    
+    if not result['success']:
+        return {"code": 2002, "message": result['error'], "data": None}
+    
+    return {
+        "code": 0,
+        "data": {"status": result['status']}
+    }
+
+
+@router.get("/projects/{project_id}/status")
+async def get_training_status(
+    project_id: str,
+    service: TrainingService = Depends(get_training_service),
+):
+    """获取训练状态"""
+    progress = service.get_progress(project_id)
+    
+    if not progress:
+        return {"code": 1002, "message": "Project not found", "data": None}
+    
+    return {
+        "code": 0,
+        "data": progress
+    }
+
+
+@router.get("/projects/{project_id}/checkpoints")
+async def get_checkpoints(
+    project_id: str,
+    only_best: bool = False,
+    service: TrainingService = Depends(get_training_service),
+):
+    """获取检查点列表"""
+    checkpoints = service.get_checkpoints(project_id, only_best)
+    
+    data = []
+    for cp in checkpoints:
+        data.append({
+            "id": cp.id,
+            "episode": cp.episode,
+            "reward": cp.reward,
+            "is_best": cp.is_best,
+            "created_at": cp.created_at.isoformat(),
+        })
+    
+    return {
+        "code": 0,
+        "data": data
     }
 
 
 # ========== WebSocket ==========
 
-@router.websocket("/ws/{task_id}")
-async def training_websocket(websocket: WebSocket, task_id: str):
+# 存储活跃的WebSocket连接
+active_connections: Dict[str, list] = {}
+
+
+@router.websocket("/ws/{project_id}")
+async def training_websocket(websocket: WebSocket, project_id: str):
     """训练进度WebSocket"""
     await websocket.accept()
     
+    # 添加到连接池
+    if project_id not in active_connections:
+        active_connections[project_id] = []
+    active_connections[project_id].append(websocket)
+    
     try:
         while True:
-            # TODO: 从Redis订阅实际进度
-            # 临时模拟数据
-            await websocket.send_json({
-                "type": "progress",
-                "data": {
-                    "current_step": 0,
-                    "total_steps": 50000,
-                    "current_episode": 0,
-                    "epsilon": 1.0,
-                    "loss": 0
-                }
-            })
-            await asyncio.sleep(1)
+            # 等待客户端消息或保持连接
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=30.0
+                )
+                # 处理客户端命令（如 ping）
+                if data == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                # 发送心跳
+                await websocket.send_json({"type": "heartbeat"})
     except WebSocketDisconnect:
-        pass
+        # 从连接池移除
+        if project_id in active_connections:
+            active_connections[project_id].remove(websocket)
 
+
+async def broadcast_progress(project_id: str, data: dict):
+    """广播训练进度到所有连接的客户端"""
+    if project_id in active_connections:
+        for ws in active_connections[project_id]:
+            try:
+                await ws.send_json(data)
+            except:
+                pass
