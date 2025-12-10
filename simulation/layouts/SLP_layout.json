@@ -5,13 +5,13 @@
     "grid_spacing": 1
   },
   "fus": [
-    { "id": "rec_dock", "length": 5, "width": 4, "notch_length": 0, "notch_width": 0, "x": 23, "y": 0, "angle": 0 },
+    { "id": "rec_dock", "length": 5, "width": 4, "notch_length": 0, "notch_width": 0, "x": 22, "y": 0, "angle": 0 },
     { "id": "central_store", "length": 12, "width": 6, "notch_length": 0, "notch_width": 0, "x": 10, "y": 0, "angle": 0 },
-    { "id": "station_1", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 2, "y": 2, "angle": 0 },
-    { "id": "station_2", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 14, "y": 7, "angle": 0 },
-    { "id": "station_3", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 2, "y": 7, "angle": 0 },
-    { "id": "station_4", "length": 8, "width": 8, "notch_length": 4, "notch_width": 4, "x": 10, "y": 7, "angle": 0 },
-    { "id": "ship_dock", "length": 5, "width": 4, "notch_length": 0, "notch_width": 0, "x": 29, "y": 0, "angle": 0 }
+    { "id": "station_1", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 3, "y": 2, "angle": 0 },
+    { "id": "station_2", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 14, "y": 6, "angle": 0 },
+    { "id": "station_3", "length": 7, "width": 4, "notch_length": 0, "notch_width": 0, "x": 3, "y": 6, "angle": 0 },
+    { "id": "station_4", "length": 8, "width": 8, "notch_length": 4, "notch_width": 4, "x": 10, "y": 6, "angle": 0 },
+    { "id": "ship_dock", "length": 5, "width": 4, "notch_length": 0, "notch_width": 0, "x": 27, "y": 0, "angle": 0 }
   ],
   "obstacles": [
     { "id": "cafeteria", "length": 13, "width": 7, "notch_length": 0, "notch_width": 0, "x": 23, "y": 11, "angle": 0 },

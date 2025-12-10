@@ -1,0 +1,22 @@
+# FastAPI 后端依赖
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+
+# 数据库
+sqlalchemy>=2.0.0
+alembic>=1.11.0
+
+# 异步任务
+celery>=5.3.0
+redis>=4.5.0
+
+# WebSocket
+websockets>=11.0
+
+# 工具
+python-dotenv>=1.0.0
+pyyaml>=6.0
+uuid
+

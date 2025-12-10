@@ -11,7 +11,7 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 31,
+      "x": 30,
       "y": 0,
       "angle": 270
     },
@@ -21,9 +21,9 @@
       "width": 6,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 14,
-      "y": 1,
-      "angle": 0
+      "x": 26,
+      "y": 10,
+      "angle": 180
     },
     {
       "id": "station_1",
@@ -31,9 +31,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 13,
+      "x": 4,
       "y": 10,
-      "angle": 180
+      "angle": 90
     },
     {
       "id": "station_2",
@@ -41,8 +41,8 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 18,
-      "y": 7,
+      "x": 17,
+      "y": 0,
       "angle": 0
     },
     {
@@ -51,9 +51,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 13,
-      "y": 14,
-      "angle": 180
+      "x": 14,
+      "y": 13,
+      "angle": 0
     },
     {
       "id": "station_4",
@@ -62,8 +62,8 @@
       "notch_length": 4,
       "notch_width": 4,
       "x": 13,
-      "y": 8,
-      "angle": 0
+      "y": 10,
+      "angle": 270
     },
     {
       "id": "ship_dock",
@@ -71,9 +71,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 2,
-      "y": 14,
-      "angle": 0
+      "x": 0,
+      "y": 9,
+      "angle": 90
     }
   ],
   "obstacles": [
@@ -93,9 +93,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 7,
-      "y": 0,
-      "angle": 270
+      "x": 28,
+      "y": 7,
+      "angle": 0
     },
     {
       "id": "obstacle_3",
@@ -103,8 +103,8 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 1,
-      "y": 14,
+      "x": 31,
+      "y": 6,
       "angle": 90
     },
     {
@@ -113,8 +113,8 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 32,
-      "y": 6,
+      "x": 14,
+      "y": 1,
       "angle": 270
     },
     {
@@ -123,9 +123,9 @@
       "width": 4,
       "notch_length": 0,
       "notch_width": 0,
-      "x": 34,
-      "y": 5,
-      "angle": 0
+      "x": 14,
+      "y": 12,
+      "angle": 90
     }
   ]
 }

@@ -5,3 +5,23 @@ analysis/
 simulation/__pycache__/
 environment/__pycache__/
 tools/
+
+# Web App
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/frontend/.env
+
+# Data (large files)
+data/uploads/
+data/checkpoints/
+data/results/
+!data/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+*.pyc
+*.pyo
