@@ -7,8 +7,8 @@ from pathlib import Path
 import shutil
 import json
 
-from ..db import crud
-from ..db.models import Project
+from db import crud
+from db.models import Project
 
 
 class ProjectService:

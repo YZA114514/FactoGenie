@@ -4,8 +4,8 @@
 from fastapi import APIRouter, Depends
 from typing import Optional
 
-from ..deps import get_result_service
-from ...services.result_service import ResultService
+from api.deps import get_result_service
+from services.result_service import ResultService
 
 router = APIRouter()
 

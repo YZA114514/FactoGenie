@@ -7,8 +7,8 @@ from pathlib import Path
 import json
 import threading
 
-from ..db import crud
-from ..db.models import Project, Checkpoint
+from db import crud
+from db.models import Project, Checkpoint
 
 
 class TrainingService:

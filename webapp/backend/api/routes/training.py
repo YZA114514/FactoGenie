@@ -6,9 +6,9 @@ from pydantic import BaseModel
 from typing import Optional, Dict
 import asyncio
 
-from ..deps import get_project_service, get_training_service
-from ...services.project_service import ProjectService
-from ...services.training_service import TrainingService
+from api.deps import get_project_service, get_training_service
+from services.project_service import ProjectService
+from services.training_service import TrainingService
 
 router = APIRouter()
 

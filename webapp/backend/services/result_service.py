@@ -6,8 +6,8 @@ from typing import Dict, List, Optional
 from pathlib import Path
 import json
 
-from ..db import crud
-from ..db.models import Checkpoint
+from db import crud
+from db.models import Checkpoint
 
 
 class ResultService:
