@@ -129,6 +129,19 @@ if __name__ == "__main__":
         default="default",
         help="摆放顺序: default(配置文件顺序), process_flow(按工艺流程), logistics_intensity(按物流强度), size_desc(面积从大到小), size_asc(面积从小到大), flow_desc(物料连接数从多到少), random(随机)"
     )
+    # 校准参数
+    parser.add_argument(
+        "--calibrate_episodes",
+        type=int,
+        default=0,
+        help="校准回合数：运行N次随机摆放来估计指标边界。0表示不校准，使用默认硬编码边界。建议值：100"
+    )
+    parser.add_argument(
+        "--throughput_target",
+        type=float,
+        default=None,
+        help="用户指定的吞吐量目标（产品数）。如果不指定，则通过校准自动估计"
+    )
     args = parser.parse_args()
 
     train(args)

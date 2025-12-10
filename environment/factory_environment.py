@@ -130,6 +130,14 @@ class LayoutEnvironment:
         self.layout_path = layout_path
         self.simulation_duration = simulation_duration
         self.last_metrics = None
+        
+        # 指标边界（用于奖励归一化）- 可通过校准动态设置
+        self.metric_bounds = {
+            'distance': (10.0, 29.0),      # (best, worst) 越小越好
+            'logistics': (3800.0, 13000.0), # (best, worst) 越小越好
+            'throughput': (400.0, 120.0),   # (best, worst) 越大越好
+            'utilization': (0.8, 0.3),      # (best, worst) 越大越好
+        }
         self.metrics_log_path: Optional[Path] = None
         self.metrics_log_header_written = False
         self.episode_counter = 0
@@ -147,6 +155,22 @@ class LayoutEnvironment:
         # 环境状态
         self.reset()
 
+    def set_metric_bounds(self, bounds: Dict[str, tuple]) -> None:
+        """
+        设置指标边界（用于奖励归一化）
+        
+        Args:
+            bounds: 边界字典，格式为 {'metric_name': (best, worst), ...}
+                - distance: (best, worst) 越小越好
+                - logistics: (best, worst) 越小越好
+                - throughput: (best, worst) 越大越好
+                - utilization: (best, worst) 越大越好
+        """
+        for metric, (best, worst) in bounds.items():
+            if metric in self.metric_bounds:
+                self.metric_bounds[metric] = (best, worst)
+                print(f"[边界更新] {metric}: best={best:.4f}, worst={worst:.4f}")
+    
     def set_metrics_logger(self, log_path: str) -> None:
         """配置仿真指标日志输出文件"""
         if log_path:
@@ -162,7 +186,8 @@ class LayoutEnvironment:
         simulation_duration: float = 20000,
         objective_weights: Optional[Dict[str, float]] = None,
         placement_order: str = "default",
-        layout_path: Optional[str] = None
+        layout_path: Optional[str] = None,
+        metric_bounds: Optional[Dict[str, tuple]] = None,
     ) -> 'LayoutEnvironment':
         """
         从配置文件创建环境实例
@@ -181,6 +206,9 @@ class LayoutEnvironment:
                 - 'process_flow': 按工艺流程顺序 (rec_dock→central_store→station_1→station_3→station_2→station_4→ship_dock→obstacles)
                 - 'logistics_intensity': 按物流强度顺序 (station_4→station_3→station_2→central_store→station_1→rec_dock→ship_dock→obstacles)
             layout_path: 自定义布局文件路径（用于并行实验隔离），如果为None则使用配置文件中的默认路径
+            metric_bounds: 指标边界（用于奖励归一化），格式为 {'distance': (best, worst), ...}
+                - 如果为None，使用默认硬编码值
+                - 可通过校准模块动态获取
             
         Returns:
             LayoutEnvironment 实例
@@ -265,7 +293,7 @@ class LayoutEnvironment:
         # 使用自定义权重或配置文件默认权重
         weights = objective_weights if objective_weights is not None else loader.get_objective_weights()
         
-        return cls(
+        env = cls(
             grid_size=loader.get_factory_size(),
             functional_units=functional_units,
             material_flow=material_flow,
@@ -276,6 +304,12 @@ class LayoutEnvironment:
             layout_path=str(loader.layout_path),
             simulation_duration=simulation_duration
         )
+        
+        # 设置校准的指标边界（如果提供）
+        if metric_bounds is not None:
+            env.set_metric_bounds(metric_bounds)
+        
+        return env
         
     def reset(self) -> Dict:
         """
@@ -856,18 +890,18 @@ class LayoutEnvironment:
                 print(f"[仿真] 距离:{avg_distance:.2f}, 物流:{total_logistics:.0f}, 产品:{finished_goods:.0f}, 利用率:{avg_station_util:.4f}")
             
             # 计算多目标奖励（归一化到 [-1, 0] 范围）
-            # 改进版：扩大指标范围 + Tanh非线性映射（增强好动作和坏动作的区分度）
+            # 改进版：使用校准的指标边界 + Tanh非线性映射（增强好动作和坏动作的区分度）
             
-            # 1. 运输距离越小越好（扩大范围：6.0-28.0，使用Tanh非线性映射）
-            distance_best, distance_worst = 10.0, 29.0
+            # 1. 运输距离越小越好（使用校准边界，Tanh非线性映射）
+            distance_best, distance_worst = self.metric_bounds['distance']
             distance_range = max(distance_worst - distance_best, 1e-6)
             distance_normalized = (avg_distance - distance_best) / distance_range
             distance_normalized = np.clip(distance_normalized, 0.0, 1.0)
             k_dist = 3.0
             distance_reward = -np.tanh(k_dist * distance_normalized) / np.tanh(k_dist)
             
-            # 2. 物流强度越小越好（扩大范围：200.0-1050.0，使用Tanh非线性映射）
-            logistics_best, logistics_worst = 3800.0, 13000.0
+            # 2. 物流强度越小越好（使用校准边界，Tanh非线性映射）
+            logistics_best, logistics_worst = self.metric_bounds['logistics']
             logistics_range = max(logistics_worst - logistics_best, 1e-6)
             logistics_normalized = (total_logistics - logistics_best) / logistics_range
             logistics_normalized = np.clip(logistics_normalized, 0.0, 1.0)
@@ -879,8 +913,8 @@ class LayoutEnvironment:
             flow_clarity_reward = self._calculate_flow_clarity_reward()
             flow_clarity_reward = np.clip(flow_clarity_reward, -1.0, 0.0)
             
-            # 4. 吞吐量奖励（扩大范围：120-400，使用Tanh非线性映射）
-            throughput_best, throughput_worst = 400.0, 120.0
+            # 4. 吞吐量奖励（使用校准边界，Tanh非线性映射）
+            throughput_best, throughput_worst = self.metric_bounds['throughput']
             if finished_goods < throughput_worst:
                 # 严重不足，给予最大惩罚
                 throughput_reward = -1.0
@@ -894,9 +928,9 @@ class LayoutEnvironment:
                 k_tp = 3.0
                 throughput_reward = -np.tanh(k_tp * throughput_normalized) / np.tanh(k_tp)
             
-            # 5. 工位利用率奖励（扩大范围：0.01-0.07，使用Tanh非线性映射）
-            util_best, util_worst = 0.8, 0.3
-            if avg_station_util < 0.05:
+            # 5. 工位利用率奖励（使用校准边界，Tanh非线性映射）
+            util_best, util_worst = self.metric_bounds['utilization']
+            if avg_station_util < util_worst * 0.15:  # 动态阈值：worst的15%以下
                 # 几乎不工作，最大惩罚
                 utilization_reward = -1.0
             elif avg_station_util >= util_best:

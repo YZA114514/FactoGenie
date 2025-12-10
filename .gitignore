@@ -15,6 +15,7 @@ webapp/frontend/.env
 data/uploads/
 data/checkpoints/
 data/results/
+data/calibrations/
 !data/.gitkeep
 
 # IDE

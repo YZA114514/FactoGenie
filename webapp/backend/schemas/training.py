@@ -43,6 +43,8 @@ class TrainingParams(BaseModel):
         "random", "process_flow", "logistics_intensity"
     ] = "size_desc"
     checkpoint_interval: int = 1000  # 每多少episode保存一次权重，0表示不保存
+    calibrate_episodes: int = 0      # 校准回合数，0表示不校准，建议100
+    throughput_target: Optional[float] = None  # 用户指定的吞吐量目标
 
 
 class FixedPosition(BaseModel):

@@ -144,6 +144,8 @@ export interface TrainingParams {
   weights: ObjectiveWeights;
   placement_order: PlacementOrder;
   checkpoint_interval: number;  // 每多少episode保存一次权重，0表示不保存
+  calibrate_episodes: number;   // 校准回合数，0表示不校准
+  throughput_target?: number;   // 用户指定的吞吐量目标
 }
 
 // ========== 训练进度 ==========
@@ -275,5 +277,7 @@ export const DEFAULT_TRAINING_PARAMS: TrainingParams = {
   },
   placement_order: 'size_desc',
   checkpoint_interval: 1000,
+  calibrate_episodes: 100,
+  throughput_target: undefined,
 };
 

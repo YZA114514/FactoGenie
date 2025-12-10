@@ -121,12 +121,45 @@ def train(params):
     # 创建实验专用的布局文件（用于并行实验隔离）
     experiment_layout_path = _create_experiment_layout(params)
     
+    # 校准指标边界（如果需要）
+    metric_bounds = None
+    calibrate_episodes = getattr(params, 'calibrate_episodes', 0)  # 0表示不校准，使用默认边界
+    throughput_target = getattr(params, 'throughput_target', None)  # 用户指定的吞吐量目标
+    
+    if calibrate_episodes > 0:
+        print(f"\n{'='*50}")
+        print(f"开始校准指标边界 ({calibrate_episodes} 个随机布局)...")
+        print(f"{'='*50}")
+        
+        from calibration.bounds import BoundsManager
+        bounds_manager = BoundsManager()
+        
+        # 获取工厂配置路径
+        factory_config = "simulation/configs/chair_factory.json"
+        layout_config = experiment_layout_path
+        
+        bounds = bounds_manager.load_or_calibrate(
+            factory_config_path=factory_config,
+            layout_config_path=layout_config,
+            n_episodes=calibrate_episodes,
+            simulation_duration=simulation_duration,
+            throughput_target=throughput_target,
+        )
+        
+        # 提取边界用于环境
+        metric_bounds = bounds_manager.get_bounds_for_reward(
+            factory_config_path=factory_config,
+            layout_config_path=layout_config,
+        )
+        print(f"\n使用校准边界: {metric_bounds}")
+    
     env = FactoryEnv(
         use_simulation=params.use_simulation,
         simulation_duration=simulation_duration,
         objective_weights=objective_weights,
         placement_order=placement_order,
-        layout_path=experiment_layout_path
+        layout_path=experiment_layout_path,
+        metric_bounds=metric_bounds,
     )
     print(f"Environment: use_simulation={params.use_simulation}, simulation_duration={simulation_duration}")
     print(f"Objective weights: {objective_weights}")

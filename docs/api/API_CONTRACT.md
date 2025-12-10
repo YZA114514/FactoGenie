@@ -192,6 +192,10 @@ interface TrainingParams {
   
   // 检查点参数
   checkpoint_interval: number;   // 每多少episode保存一次权重，默认 1000，0表示不保存中间过程
+  
+  // 校准参数
+  calibrate_episodes: number;    // 校准回合数，默认 0（不校准），建议 100
+  throughput_target?: number;    // 用户指定的吞吐量目标，可选
 }
 
 interface ObjectiveWeights {
@@ -517,7 +521,64 @@ Response:
 }
 ```
 
-### 3.3 结果查询
+### 3.3 校准管理
+
+#### 触发校准
+```
+POST /api/calibration/run
+Content-Type: application/json
+
+Request:
+{
+  "factory_config": FactoryConfig,
+  "layout_config": LayoutConfig,
+  "n_episodes": 100,
+  "simulation_duration": 2000,
+  "throughput_target": null    // 可选，用户指定的吞吐量目标
+}
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "config_hash": "abc123def456",
+    "bounds": {
+      "distance": { "best": 12.5, "worst": 25.3 },
+      "logistics": { "best": 4200, "worst": 11000 },
+      "throughput": { "best": 380, "worst": 150 },
+      "utilization": { "best": 0.75, "worst": 0.35 }
+    }
+  }
+}
+```
+
+#### 查询校准缓存
+```
+GET /api/calibration/cache?factory_hash={hash}
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "exists": true,
+    "bounds": { ... },
+    "created_at": "2024-12-10T10:00:00Z"
+  }
+}
+```
+
+#### 清除校准缓存
+```
+DELETE /api/calibration/cache/{config_hash}
+
+Response:
+{
+  "code": 0,
+  "message": "deleted"
+}
+```
+
+### 3.4 结果查询
 
 #### 获取布局历史
 ```
@@ -764,7 +825,9 @@ data/
       "utilization": 0.15
     },
     "placement_order": "size_desc",
-    "checkpoint_interval": 1000
+    "checkpoint_interval": 1000,
+    "calibrate_episodes": 100,
+    "throughput_target": null
   }
 }
 ```

@@ -30,7 +30,8 @@ class FactoryEnv:
         simulation_duration: float = 20000,  # 1天 = 20000时间单位（400个椅子/天）
         objective_weights: dict = None,  # 自定义奖励权重
         placement_order: str = "default",  # 摆放顺序策略
-        layout_path: str = None  # 自定义布局文件路径（用于并行实验隔离）
+        layout_path: str = None,  # 自定义布局文件路径（用于并行实验隔离）
+        metric_bounds: dict = None,  # 校准的指标边界
     ):
         """
         初始化包装器环境
@@ -47,6 +48,7 @@ class FactoryEnv:
                 - 'flow_desc': 按物料流连接数从多到少
                 - 'random': 随机顺序
             layout_path: 自定义布局文件路径（用于并行实验隔离）
+            metric_bounds: 校准的指标边界，格式为 {'distance': (best, worst), ...}
         """
         # 创建底层环境
         self.env = LayoutEnvironment.from_config(
@@ -55,7 +57,8 @@ class FactoryEnv:
             simulation_duration=simulation_duration,
             objective_weights=objective_weights,
             placement_order=placement_order,
-            layout_path=layout_path
+            layout_path=layout_path,
+            metric_bounds=metric_bounds,
         )
         
         # 保存环境参数
