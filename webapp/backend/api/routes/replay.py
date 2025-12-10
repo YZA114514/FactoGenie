@@ -2,108 +2,152 @@
 回放 API
 """
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from typing import Optional
 from pathlib import Path
 import json
 import asyncio
 
-from api.deps import get_result_service
+from api.deps import get_result_service, get_project_service
 from services.result_service import ResultService
+from services.project_service import ProjectService
+from services.replay_service import get_replay_service, clear_replay_service
 
 router = APIRouter()
+
+
+class StartReplayRequest(BaseModel):
+    episode: int
 
 
 @router.post("/{project_id}/start")
 async def start_replay(
     project_id: str,
-    episode: int,
-    service: ResultService = Depends(get_result_service),
+    request: StartReplayRequest,
+    project_service: ProjectService = Depends(get_project_service),
+    result_service: ResultService = Depends(get_result_service),
 ):
     """
     启动回放会话
     
-    返回回放所需的数据（检查点布局 + 放置顺序）
+    加载检查点模型，准备回放
     """
-    # 获取检查点详情
-    checkpoint = service.get_checkpoint_detail(project_id, episode)
+    # 获取项目信息
+    project = project_service.get_project(project_id)
+    if not project:
+        return {"code": 1002, "message": "Project not found", "data": None}
     
+    # 获取检查点详情
+    checkpoint = result_service.get_checkpoint_detail(project_id, request.episode)
     if not checkpoint:
         return {"code": 1002, "message": "Checkpoint not found", "data": None}
     
-    # 返回回放数据
+    # 获取配置文件路径
+    project_dir = project_service.get_project_dir(project_id)
+    factory_config_path = str(project_dir / "factory_config.json")
+    layout_config_path = str(project_dir / "layout_config.json")
+    
+    # 初始化回放服务
+    replay_service = get_replay_service(project_id)
+    
+    model_path = checkpoint.get('model_path')
+    if not model_path:
+        return {"code": 1002, "message": "Model path not found", "data": None}
+    
+    success = replay_service.load_checkpoint(
+        model_path=model_path,
+        layout_config_path=layout_config_path,
+        factory_config_path=factory_config_path,
+        training_params=project.training_params,
+    )
+    
+    if not success:
+        return {"code": 5000, "message": "Failed to load checkpoint", "data": None}
+    
     return {
         "code": 0,
         "data": {
             "project_id": project_id,
-            "episode": episode,
+            "episode": request.episode,
+            "total_steps": replay_service.get_total_steps(),
             "layout": checkpoint.get('layout'),
             "metrics": checkpoint.get('metrics'),
-            "model_path": checkpoint.get('model_path'),
         }
     }
 
 
-@router.get("/{project_id}/heatmap/{episode}/{step}")
-async def get_heatmap(
+@router.get("/{project_id}/step/{step}")
+async def get_step_data(
     project_id: str,
-    episode: int,
     step: int,
 ):
     """
-    获取特定步骤的动作热力图
-    
-    注意：这需要加载模型并重新计算，可能较慢
+    获取指定步骤的数据（包括热力图）
     """
-    import sys
-    project_root = Path(__file__).parent.parent.parent.parent.parent
-    sys.path.insert(0, str(project_root))
+    replay_service = get_replay_service(project_id)
     
     try:
-        # 获取项目数据目录
-        data_dir = Path(__file__).parent.parent.parent.parent / "data" / "projects" / project_id
-        checkpoint_dir = data_dir / "checkpoints"
-        
-        # 找到对应的模型文件
-        model_path = checkpoint_dir / f"model_ep{episode}.pth"
-        if not model_path.exists():
-            model_path = checkpoint_dir / "model_best.pth"
-        
-        if not model_path.exists():
-            return {"code": 1002, "message": "Model not found", "data": None}
-        
-        # TODO: 实现热力图计算
-        # 这需要：
-        # 1. 加载模型
-        # 2. 重建环境状态到第 step 步
-        # 3. 对所有可能的动作计算 Q 值
-        # 4. 将 Q 值映射为热力图
-        
-        # 暂时返回模拟数据
+        data = replay_service.get_step_data(step)
         return {
             "code": 0,
-            "data": {
-                "step": step,
-                "unit_id": f"unit_{step}",
-                "grid_width": 20,
-                "grid_height": 20,
-                "angle_options": [0, 90, 180, 270],
-                "q_values": None,  # TODO: 实际Q值
-                "selected_action": {
-                    "x": 5,
-                    "y": 5,
-                    "angle": 0,
-                    "q_value": 0.5,
-                },
-                "note": "Heatmap calculation not yet implemented"
-            }
+            "data": data
         }
-        
     except Exception as e:
         return {
             "code": 5000,
             "message": str(e),
             "data": None
         }
+
+
+@router.post("/{project_id}/forward")
+async def step_forward(project_id: str):
+    """执行一步回放"""
+    replay_service = get_replay_service(project_id)
+    
+    try:
+        result = replay_service.step_forward()
+        return {
+            "code": 0,
+            "data": result
+        }
+    except Exception as e:
+        return {
+            "code": 5000,
+            "message": str(e),
+            "data": None
+        }
+
+
+@router.get("/{project_id}/heatmap")
+async def get_current_heatmap(project_id: str):
+    """获取当前步骤的热力图"""
+    replay_service = get_replay_service(project_id)
+    
+    try:
+        heatmap = replay_service.get_heatmap()
+        layout = replay_service.get_layout_state()
+        
+        return {
+            "code": 0,
+            "data": {
+                "heatmap": heatmap,
+                "layout": layout,
+            }
+        }
+    except Exception as e:
+        return {
+            "code": 5000,
+            "message": str(e),
+            "data": None
+        }
+
+
+@router.delete("/{project_id}/session")
+async def close_replay_session(project_id: str):
+    """关闭回放会话"""
+    clear_replay_service(project_id)
+    return {"code": 0, "message": "Session closed"}
 
 
 @router.websocket("/ws/{project_id}/{episode}")

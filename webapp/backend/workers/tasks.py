@@ -54,6 +54,8 @@ def run_training_task(self, project_id: str):
         # 准备配置文件
         project_dir = Path(__file__).parent.parent.parent.parent / "data" / "projects" / project_id
         project_dir.mkdir(parents=True, exist_ok=True)
+        checkpoints_dir = project_dir / "checkpoints"
+        checkpoints_dir.mkdir(exist_ok=True)
         
         factory_config_path = project_dir / "factory_config.json"
         layout_config_path = project_dir / "layout_config.json"
@@ -69,86 +71,70 @@ def run_training_task(self, project_id: str):
         with open(layout_config_path, 'w') as f:
             json.dump(layout_with_constraints, f)
         
-        # 导入训练模块
-        from environment.gym_wrapper import FactoryEnv
-        from agent.trainer import train
-        from argparse import Namespace
+        # 使用优化服务进行训练
+        from services.optimization_service import OptimizationService
         
-        # 构建训练参数
-        params = Namespace(
-            lr=training_params.get('learning_rate', 2e-5),
-            batch_size=training_params.get('batch_size', 32),
-            replay_size=training_params.get('replay_size', 50000),
-            replay_start_size=training_params.get('replay_start_size', 5000),
-            sync_target_frames=training_params.get('sync_target_every', 2000),
-            epsilon_decay_last_frame=training_params.get('epsilon_decay_frames', 150000),
-            total_steps=training_params.get('total_steps', 50000),
-            epsilon_start=training_params.get('epsilon_start', 1.0),
-            epsilon_final=training_params.get('epsilon_final', 0.05),
-            device='cpu',
-            gpu_id=0,
-            use_prior=training_params.get('prioritized', False),
-            use_double=training_params.get('double_dqn', False),
-            use_dueling=training_params.get('dueling', False),
-            use_noisy=training_params.get('noisy_net', False),
-            sigma_init=0.5,
-            use_simulation=training_params.get('use_simulation', True),
-            simulation_duration=training_params.get('simulation_duration', 2000),
-            reward_decompose='none',
-            reward_gamma=0.9,
-            weight_distance=training_params.get('weights', {}).get('distance', 0.20),
-            weight_logistics=training_params.get('weights', {}).get('logistics', 0.30),
-            weight_flow=training_params.get('weights', {}).get('flow', 0.20),
-            weight_throughput=training_params.get('weights', {}).get('throughput', 0.25),
-            weight_utilization=training_params.get('weights', {}).get('utilization', 0.05),
-            placement_order=training_params.get('placement_order', 'default'),
-            calibrate_episodes=training_params.get('calibrate_episodes', 0),
-            throughput_target=training_params.get('throughput_target', None),
-            checkpoint_interval=training_params.get('checkpoint_interval', 1000),
+        opt_service = OptimizationService(project_dir)
+        
+        # 创建环境
+        opt_service.create_environment(
+            factory_config_path=str(factory_config_path),
+            layout_config_path=str(layout_config_path),
+            training_params=training_params,
         )
         
-        # TODO: 实际调用训练（需要修改trainer支持进度回调）
-        # 这里先模拟训练过程
-        total_steps = params.total_steps
-        for step in range(0, total_steps, 1000):
-            # 检查是否被取消
-            if self.is_aborted():
-                crud.update_project(db, project_id, status='stopped')
-                return {'success': False, 'error': 'Task aborted'}
-            
-            # 更新进度
-            progress = step / total_steps * 100
+        # 进度回调
+        def on_progress(data):
+            # 更新 Celery 状态
             self.update_state(
                 state='PROGRESS',
                 meta={
-                    'current': step,
-                    'total': total_steps,
-                    'progress': progress,
+                    'current': data['step'],
+                    'episode': data['episode'],
+                    'reward': data.get('reward'),
+                    'mean_reward': data.get('mean_reward'),
                 }
             )
             
             # 更新数据库
             crud.update_project(
                 db, project_id,
-                current_step=step,
-                current_episode=step // 10,
+                current_step=data['step'],
+                current_episode=data['episode'],
+            )
+        
+        # 检查点回调
+        def on_checkpoint(episode, reward, model_path):
+            # 保存到数据库
+            crud.create_checkpoint(
+                db, project_id,
+                episode=episode,
+                reward=reward,
+                model_path=model_path,
+                layout_path=str(layout_config_path),
             )
             
-            time.sleep(0.1)  # 模拟训练
+            # 更新最佳奖励
+            if project.best_reward is None or reward > project.best_reward:
+                crud.update_project(db, project_id, best_reward=reward)
         
-        # 训练完成
-        crud.update_project(
-            db, project_id,
-            status='completed',
-            current_step=total_steps,
-            final_reward=0.0,  # TODO: 实际奖励
+        # 运行训练
+        result = opt_service.run_training(
+            training_params=training_params,
+            progress_callback=on_progress,
+            checkpoint_callback=on_checkpoint,
         )
         
-        return {
-            'success': True,
-            'project_id': project_id,
-            'status': 'completed',
-        }
+        if result['success']:
+            crud.update_project(
+                db, project_id,
+                status='completed',
+                final_reward=result.get('final_reward', 0),
+            )
+        else:
+            crud.update_project(db, project_id, status='failed')
+        
+        return result
         
     except Exception as e:
         traceback.print_exc()

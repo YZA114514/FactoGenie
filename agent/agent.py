@@ -172,3 +172,91 @@ def calc_loss_prio(batch, weights, net, tgt_net, device="cpu", double_dqn=True):
     loss = (state_action_values - expected_state_action_values) ** 2
     loss_v = weights_v * loss
     return loss_v.mean(), td_errors.detach().cpu().numpy()
+
+
+def get_q_values_for_state(net, state, device="cpu"):
+    """
+    获取指定状态的所有动作 Q 值（用于热力图）
+    
+    Args:
+        net: DQN 网络
+        state: 状态数组
+        device: 计算设备
+        
+    Returns:
+        Q 值数组 [num_actions]
+    """
+    net.eval()
+    with torch.no_grad():
+        state_v = torch.tensor(
+            np.array([state], copy=False), dtype=torch.float32, device=device
+        )
+        q_vals = net(state_v).squeeze().cpu().numpy()
+    return q_vals
+
+
+def get_q_values_heatmap(net, env, state, device="cpu"):
+    """
+    获取当前状态的 Q 值热力图数据
+    
+    Args:
+        net: DQN 网络
+        env: 环境实例
+        state: 当前状态
+        device: 计算设备
+        
+    Returns:
+        热力图数据字典
+    """
+    # 获取所有 Q 值
+    q_values = get_q_values_for_state(net, state, device)
+    
+    # 获取有效动作
+    valid_actions = []
+    if hasattr(env, 'get_valid_actions'):
+        valid_actions = env.get_valid_actions()
+    
+    # 获取网格尺寸
+    grid_size = getattr(env, 'grid_size', (20, 20))
+    if hasattr(env, 'env'):
+        grid_size = getattr(env.env, 'grid_size', (20, 20))
+    
+    nx, ny = grid_size
+    num_rotations = 4  # 0, 90, 180, 270
+    
+    # 重塑 Q 值为 [rotation, y, x] 的形式
+    # 假设动作编码为: action = rotation * (nx * ny) + y * nx + x
+    q_values_3d = np.full((num_rotations, ny, nx), -np.inf)
+    
+    for action_idx, q_val in enumerate(q_values):
+        rotation = action_idx // (nx * ny)
+        remaining = action_idx % (nx * ny)
+        y = remaining // nx
+        x = remaining % nx
+        
+        if rotation < num_rotations and y < ny and x < nx:
+            q_values_3d[rotation, y, x] = q_val
+    
+    # 找到最佳动作
+    best_action_idx = int(np.argmax(q_values))
+    best_rotation = best_action_idx // (nx * ny)
+    remaining = best_action_idx % (nx * ny)
+    best_y = remaining // nx
+    best_x = remaining % nx
+    
+    return {
+        'grid_width': nx,
+        'grid_height': ny,
+        'angle_options': [0, 90, 180, 270],
+        'q_values': q_values_3d.tolist(),
+        'q_values_flat': q_values.tolist(),
+        'valid_actions': valid_actions,
+        'selected_action': {
+            'x': best_x,
+            'y': best_y,
+            'angle': best_rotation * 90,
+            'q_value': float(q_values[best_action_idx]),
+        },
+        'q_min': float(np.min(q_values[q_values > -np.inf])) if np.any(q_values > -np.inf) else 0,
+        'q_max': float(np.max(q_values)),
+    }

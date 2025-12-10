@@ -603,7 +603,98 @@ Response:
 }
 ```
 
-### 3.4 结果查询
+### 3.4 回放
+
+#### 启动回放会话
+```
+POST /api/replay/{project_id}/start
+Content-Type: application/json
+
+Request:
+{
+  "episode": 1000
+}
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "project_id": "xxx",
+    "episode": 1000,
+    "total_steps": 10,
+    "layout": { ... },
+    "metrics": { ... }
+  }
+}
+```
+
+#### 获取指定步骤数据（含热力图）
+```
+GET /api/replay/{project_id}/step/{step}
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "step": 3,
+    "total_steps": 10,
+    "current_unit": { ... },
+    "placed_units": [...],
+    "heatmap": {
+      "grid_width": 20,
+      "grid_height": 20,
+      "q_values": [...],
+      "selected_action": { "x": 5, "y": 5, "angle": 0, "q_value": 0.5 }
+    }
+  }
+}
+```
+
+#### 执行一步回放
+```
+POST /api/replay/{project_id}/forward
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "step": 4,
+    "action": 123,
+    "reward": -0.01,
+    "done": false
+  }
+}
+```
+
+#### 获取当前热力图
+```
+GET /api/replay/{project_id}/heatmap
+
+Response:
+{
+  "code": 0,
+  "data": {
+    "heatmap": { ... },
+    "layout": {
+      "grid_size": [20, 20],
+      "placed_units": [...]
+    }
+  }
+}
+```
+
+#### 关闭回放会话
+```
+DELETE /api/replay/{project_id}/session
+
+Response:
+{
+  "code": 0,
+  "message": "Session closed"
+}
+```
+
+### 3.5 结果查询
 
 #### 获取布局历史
 ```
