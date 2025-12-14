@@ -1,0 +1,164 @@
+{
+  "canvas": {
+    "width": 100,
+    "height": 100
+  },
+  "fus": [
+    {
+      "id": "rec_dock",
+      "label": "rec_dock",
+      "width": 4,
+      "height": 5,
+      "length": 5,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 0,
+      "y": 13
+    },
+    {
+      "id": "station_1",
+      "label": "station_1",
+      "width": 4,
+      "height": 7,
+      "length": 7,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 180,
+      "x": 21,
+      "y": 38
+    },
+    {
+      "id": "station_2",
+      "label": "station_2",
+      "width": 4,
+      "height": 7,
+      "length": 7,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 270,
+      "x": 84,
+      "y": 48
+    },
+    {
+      "id": "station_3",
+      "label": "station_3",
+      "width": 4,
+      "height": 7,
+      "length": 7,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 37,
+      "y": 30
+    },
+    {
+      "id": "station_4",
+      "label": "station_4",
+      "width": 8,
+      "height": 8,
+      "length": 8,
+      "notch_length": 4,
+      "notch_width": 4,
+      "movable": true,
+      "angle": 270,
+      "x": 34,
+      "y": 37
+    },
+    {
+      "id": "central_store",
+      "label": "central_store",
+      "width": 6,
+      "height": 12,
+      "length": 12,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 180,
+      "x": 55,
+      "y": 55
+    },
+    {
+      "id": "ship_dock",
+      "label": "ship_dock",
+      "width": 4,
+      "height": 5,
+      "length": 5,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 0,
+      "x": 0,
+      "y": 54
+    }
+  ],
+  "obstacles": [
+    {
+      "id": "cafeteria",
+      "label": "cafeteria",
+      "width": 7,
+      "height": 13,
+      "length": 13,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 0
+    },
+    {
+      "id": "obstacle_2",
+      "label": "obstacle_2",
+      "width": 4,
+      "height": 6,
+      "length": 6,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 56,
+      "y": 9
+    },
+    {
+      "id": "obstacle_3",
+      "label": "obstacle_3",
+      "width": 4,
+      "height": 6,
+      "length": 6,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 80,
+      "y": 46
+    },
+    {
+      "id": "obstacle_4",
+      "label": "obstacle_4",
+      "width": 4,
+      "height": 4,
+      "length": 4,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 69,
+      "y": 5
+    },
+    {
+      "id": "obstacle_5",
+      "label": "obstacle_5",
+      "width": 4,
+      "height": 2,
+      "length": 2,
+      "notch_length": 0,
+      "notch_width": 0,
+      "movable": true,
+      "angle": 90,
+      "x": 3,
+      "y": 26
+    }
+  ]
+}

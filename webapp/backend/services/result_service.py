@@ -57,7 +57,11 @@ class ResultService:
         """获取最佳布局"""
         checkpoint = crud.get_best_checkpoint(self.db, project_id)
         if not checkpoint:
-            return None
+            # 如果没有标记best，fallback到最高reward
+            cps = crud.get_checkpoints(self.db, project_id)
+            if not cps:
+                return None
+            checkpoint = max(cps, key=lambda c: c.reward or float("-inf"))
         
         layout_data = None
         if checkpoint.layout_path and Path(checkpoint.layout_path).exists():

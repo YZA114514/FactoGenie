@@ -1,0 +1,4 @@
+{
+  "checkpoint_interval": 5,
+  "total_steps": 50
+}
