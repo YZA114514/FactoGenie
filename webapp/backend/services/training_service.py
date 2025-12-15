@@ -22,12 +22,13 @@ class TrainingService:
         self.db = db
         self.data_dir = Path(__file__).parent.parent.parent.parent / "data"
     
-    def start_training(self, project_id: str) -> Dict:
+    def start_training(self, project_id: str, use_celery: bool = True) -> Dict:
         """
         启动训练任务
         
-        注意：实际的训练应该在后台进程或Celery任务中运行
-        这里只是更新状态并返回
+        Args:
+            project_id: 项目ID
+            use_celery: 是否使用Celery异步任务（False时同步阻塞）
         """
         project = crud.get_project(self.db, project_id)
         if not project:
@@ -42,15 +43,30 @@ class TrainingService:
         # 创建停止事件
         self._stop_events[project_id] = threading.Event()
         
-        # TODO: 启动Celery任务
-        # task = run_training_task.delay(project_id)
-        # crud.update_project(self.db, project_id, celery_task_id=task.id)
-        
-        return {
-            'success': True,
-            'project_id': project_id,
-            'status': 'running',
-        }
+        if use_celery:
+            # 启动Celery任务
+            try:
+                from workers.tasks import run_training_with_core
+                task = run_training_with_core.delay(project_id)
+                crud.update_project(self.db, project_id, celery_task_id=task.id)
+                
+                return {
+                    'success': True,
+                    'project_id': project_id,
+                    'task_id': task.id,
+                    'status': 'running',
+                }
+            except Exception as e:
+                crud.update_project(self.db, project_id, status='failed')
+                return {'success': False, 'error': f'Failed to start Celery task: {e}'}
+        else:
+            # 同步运行（用于测试）
+            return {
+                'success': True,
+                'project_id': project_id,
+                'status': 'running',
+                'message': 'Running synchronously',
+            }
     
     def stop_training(self, project_id: str) -> Dict:
         """停止训练任务"""
@@ -65,9 +81,20 @@ class TrainingService:
         if project_id in self._stop_events:
             self._stop_events[project_id].set()
         
-        # TODO: 取消Celery任务
-        # if project.celery_task_id:
-        #     celery_app.control.revoke(project.celery_task_id, terminate=True)
+        # 发送停止信号到Celery任务
+        try:
+            from workers.tasks import stop_training_task
+            stop_training_task.delay(project_id)
+        except Exception as e:
+            print(f"Warning: Failed to send stop signal: {e}")
+        
+        # 取消Celery任务（如果有）
+        if hasattr(project, 'celery_task_id') and project.celery_task_id:
+            try:
+                from workers.celery_app import celery_app
+                celery_app.control.revoke(project.celery_task_id, terminate=True)
+            except Exception as e:
+                print(f"Warning: Failed to revoke Celery task: {e}")
         
         crud.update_project(self.db, project_id, status='stopped')
         

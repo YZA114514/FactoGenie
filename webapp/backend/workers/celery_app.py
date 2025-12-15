@@ -28,3 +28,6 @@ celery_app.conf.update(
     task_acks_late=True,
 )
 
+
+
+
