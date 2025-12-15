@@ -10,6 +10,7 @@ tools/
 webapp/frontend/node_modules/
 webapp/frontend/dist/
 webapp/frontend/.env
+webapp/frontend/.env.local
 
 # Data (large files)
 data/uploads/
@@ -26,3 +27,26 @@ data/calibrations/
 .env
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.cache/
+.venv/
+
+# macOS
+.DS_Store
+
+# Python packaging
+dist/
+build/
+*.egg-info/
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

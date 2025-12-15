@@ -98,6 +98,16 @@ def validate_constraints(constraints: dict) -> dict:
 
 # ========== 路由 ==========
 
+@router.post("/factory")
+async def save_factory_config(config: dict):
+    """保存工厂配置（当前占位实现：校验后直接回传）"""
+    validation = validate_factory_config(config)
+    return {
+        "code": 0 if validation["valid"] else 1003,
+        "data": {"config_id": "factory_placeholder", "validation": validation},
+        "message": None if validation["valid"] else "validation failed",
+    }
+
 @router.post("/factory/upload")
 async def upload_factory_config(file: UploadFile = File(...)):
     """上传工厂配置文件"""
@@ -127,6 +137,16 @@ async def validate_factory(config: dict):
     return {
         "code": 0,
         "data": {"validation": validation}
+    }
+
+@router.post("/layout")
+async def save_layout_config(config: dict):
+    """保存布局配置（当前占位实现：校验后直接回传）"""
+    validation = validate_layout_config(config)
+    return {
+        "code": 0 if validation["valid"] else 1003,
+        "data": {"config_id": "layout_placeholder", "validation": validation},
+        "message": None if validation["valid"] else "validation failed",
     }
 
 

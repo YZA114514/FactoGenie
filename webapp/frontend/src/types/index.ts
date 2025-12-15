@@ -56,7 +56,10 @@ export interface FunctionalUnit {
   id: string;
   label: string;
   width: number;
-  height: number;
+  height?: number;
+  length?: number;
+  notch_length?: number;
+  notch_width?: number;
   movable: boolean;
   x?: number;
   y?: number;
@@ -67,7 +70,10 @@ export interface Obstacle {
   id: string;
   label: string;
   width: number;
-  height: number;
+  height?: number;
+  length?: number;
+  notch_length?: number;
+  notch_width?: number;
   movable: boolean;
   x?: number;
   y?: number;
@@ -75,7 +81,13 @@ export interface Obstacle {
 }
 
 export interface LayoutConfig {
-  canvas: {
+  factory?: {
+    length: number;
+    width: number;
+    grid_spacing?: number;
+  };
+  // 兼容旧格式
+  canvas?: {
     width: number;
     height: number;
   };
@@ -280,4 +292,3 @@ export const DEFAULT_TRAINING_PARAMS: TrainingParams = {
   calibrate_episodes: 100,
   throughput_target: undefined,
 };
-

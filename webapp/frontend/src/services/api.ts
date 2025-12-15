@@ -9,7 +9,6 @@ import type {
   Constraints,
   TrainingParams,
   TrainingProgress,
-  TrainingRecord,
   LayoutResult,
   ActionHeatmap,
 } from '../types';
@@ -62,55 +61,64 @@ export const configApi = {
 
 // ========== 训练任务 ==========
 
-export interface StartTrainingRequest {
-  name: string;
-  factory_config: FactoryConfig;
-  layout_config: LayoutConfig;
-  constraints?: Constraints;
-  training_params: TrainingParams;
-}
-
 export const trainingApi = {
-  start: async (request: StartTrainingRequest) => {
-    const res = await api.post<ApiResponse<{ task_id: string }>>('/training/start', request);
-    return res.data;
-  },
-
-  stop: async (taskId: string) => {
-    const res = await api.post<ApiResponse<{ status: string }>>(`/training/${taskId}/stop`);
-    return res.data;
-  },
-
-  pause: async (taskId: string) => {
-    const res = await api.post<ApiResponse<{ status: string }>>(`/training/${taskId}/pause`);
-    return res.data;
-  },
-
-  resume: async (taskId: string) => {
-    const res = await api.post<ApiResponse<{ status: string }>>(`/training/${taskId}/resume`);
-    return res.data;
-  },
-
-  getStatus: async (taskId: string) => {
-    const res = await api.get<ApiResponse<TrainingProgress>>(`/training/${taskId}/status`);
-    return res.data;
-  },
-
-  getRecords: async (page = 1, size = 20) => {
-    const res = await api.get<ApiResponse<{ total: number; records: TrainingRecord[] }>>(
-      '/training/records',
-      { params: { page, size } }
+  createProject: async (payload: {
+    name: string;
+    factory_config: FactoryConfig;
+    layout_config: LayoutConfig;
+    constraints?: Constraints;
+    training_params?: TrainingParams;
+    description?: string;
+  }) => {
+    const res = await api.post<ApiResponse<{ project_id: string; name: string; status: string }>>(
+      '/training/projects',
+      payload
     );
     return res.data;
   },
 
-  getRecord: async (recordId: string) => {
-    const res = await api.get<ApiResponse<TrainingRecord>>(`/training/records/${recordId}`);
+  listProjects: async (page = 1, size = 20, status?: string) => {
+    const res = await api.get<ApiResponse<{ total: number; page: number; size: number; projects: any[] }>>(
+      '/training/projects',
+      { params: { page, size, status } }
+    );
     return res.data;
   },
 
-  deleteRecord: async (recordId: string) => {
-    const res = await api.delete<ApiResponse<null>>(`/training/records/${recordId}`);
+  getProject: async (projectId: string) => {
+    const res = await api.get<ApiResponse<any>>(`/training/projects/${projectId}`);
+    return res.data;
+  },
+
+  deleteProject: async (projectId: string) => {
+    const res = await api.delete<ApiResponse<null>>(`/training/projects/${projectId}`);
+    return res.data;
+  },
+
+  startProject: async (projectId: string) => {
+    const res = await api.post<ApiResponse<{ project_id: string; status: string }>>(
+      `/training/projects/${projectId}/start`
+    );
+    return res.data;
+  },
+
+  stopProject: async (projectId: string) => {
+    const res = await api.post<ApiResponse<{ status: string }>>(`/training/projects/${projectId}/stop`);
+    return res.data;
+  },
+
+  pauseProject: async (projectId: string) => {
+    const res = await api.post<ApiResponse<{ status: string }>>(`/training/projects/${projectId}/pause`);
+    return res.data;
+  },
+
+  resumeProject: async (projectId: string) => {
+    const res = await api.post<ApiResponse<{ status: string }>>(`/training/projects/${projectId}/resume`);
+    return res.data;
+  },
+
+  getStatus: async (projectId: string) => {
+    const res = await api.get<ApiResponse<TrainingProgress>>(`/training/projects/${projectId}/status`);
     return res.data;
   },
 };
@@ -148,7 +156,8 @@ export const resultsApi = {
 // ========== WebSocket ==========
 
 export const createTrainingWebSocket = (taskId: string): WebSocket => {
-  const wsUrl = BASE_URL.replace('http', 'ws') + `/ws/training/${taskId}`;
+  const base = BASE_URL.endsWith('/api') ? BASE_URL : `${BASE_URL}/api`;
+  const wsUrl = base.replace('http', 'ws') + `/training/ws/${taskId}`;
   return new WebSocket(wsUrl);
 };
 
