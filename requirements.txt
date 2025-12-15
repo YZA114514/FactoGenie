@@ -26,3 +26,5 @@ matplotlib>=3.5.0
 
 # Simulation
 simpy>=4.0
+# Environment / Gym
+gym>=0.26.0

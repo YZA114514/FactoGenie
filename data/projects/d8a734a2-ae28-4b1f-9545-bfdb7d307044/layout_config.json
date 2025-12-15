@@ -1,0 +1,60 @@
+{
+  "factory": {
+    "length": 100,
+    "width": 100,
+    "grid_spacing": 1
+  },
+  "canvas": {
+    "width": 100,
+    "height": 100
+  },
+  "fus": [
+    {
+      "id": "station_a",
+      "label": "station_a",
+      "width": 8,
+      "height": 10,
+      "length": 10,
+      "movable": true,
+      "x": 66,
+      "y": 52,
+      "angle": 90
+    },
+    {
+      "id": "station_b",
+      "label": "station_b",
+      "width": 12,
+      "height": 15,
+      "length": 15,
+      "notch_length": 4,
+      "notch_width": 6,
+      "movable": true,
+      "x": 24,
+      "y": 74,
+      "angle": 90
+    },
+    {
+      "id": "station_c",
+      "label": "station_c",
+      "width": 6,
+      "height": 8,
+      "length": 8,
+      "movable": true,
+      "x": 49,
+      "y": 69,
+      "angle": 270
+    }
+  ],
+  "obstacles": [
+    {
+      "id": "obstacle",
+      "label": "obstacle",
+      "width": 15,
+      "height": 12,
+      "length": 12,
+      "notch_length": 8,
+      "notch_width": 6,
+      "movable": true
+    }
+  ]
+}

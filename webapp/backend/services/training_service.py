@@ -183,16 +183,21 @@ class TrainingService:
             project = crud.get_project(db_local, project_id)
             if not project:
                 return
-            # 使用项目参数或默认参数的浅拷贝，避免修改全局
-            training_params = (project.training_params or {}).copy()
-            if not training_params:
-                try:
-                    from backend import config as backend_config  # type: ignore
-                    training_params = backend_config.DEFAULT_TRAINING_PARAMS.copy()
-                except Exception:
-                    training_params = {}
-                # 压缩步数，避免调试时训练过长
-                training_params["total_steps"] = min(training_params.get("total_steps", 50000), 2000)
+            # 以默认参数为基础，合并前端/项目提供的训练参数（缺失项使用默认值）
+            try:
+                from backend import config as backend_config  # type: ignore
+                training_params = backend_config.DEFAULT_TRAINING_PARAMS.copy()
+                # 合并用户提供的参数（覆盖默认值）
+                user_params = project.training_params or {}
+                if isinstance(user_params, dict):
+                    training_params.update(user_params)
+                # 如果配置了 SHORT_TRAINING_MAX_STEPS (>0)，则用于开发/调试时限制步数；0 表示不限制
+                max_steps = getattr(backend_config, "SHORT_TRAINING_MAX_STEPS", 0)
+                if isinstance(max_steps, int) and max_steps > 0:
+                    training_params["total_steps"] = min(training_params.get("total_steps", 0), max_steps)
+            except Exception:
+                # 若无法读取配置，则退回到项目里直接给定的参数（浅拷贝）
+                training_params = (project.training_params or {}).copy()
 
             # 准备项目目录与配置文件
             project_dir.mkdir(parents=True, exist_ok=True)

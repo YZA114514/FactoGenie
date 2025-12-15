@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home2/lijinbo/Projects/FactoGenie-develop/webapp/backend/services/training_service.py", line 217, in _run_training_sync
+    opt_service.create_environment(
+  File "/home2/lijinbo/Projects/FactoGenie-develop/webapp/backend/services/optimization_service.py", line 32, in create_environment
+    from environment.gym_wrapper import FactoryEnv
+  File "/home2/lijinbo/Projects/FactoGenie-develop/environment/gym_wrapper.py", line 8, in <module>
+    from gym import spaces
+ModuleNotFoundError: No module named 'gym'
