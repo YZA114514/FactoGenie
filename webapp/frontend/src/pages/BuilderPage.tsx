@@ -225,9 +225,18 @@ const BuilderPage = () => {
   };
 
   const handleAddTransporter = async () => {
-    const v = await transporterForm.validateFields();
-    addTransporter(v);
-    transporterForm.resetFields();
+    try {
+      const v = await transporterForm.validateFields();
+      addTransporter({
+        ...v,
+        speed: Number(v.speed),
+        count: Number(v.count),
+      });
+      transporterForm.resetFields();
+    } catch (err) {
+      // antd validation rejection (e.g. speed/count empty)
+      message.warning("请先填写完整运输工具的速度和数量");
+    }
   };
 
   const buildLayoutConfig = (): LayoutConfig => {
@@ -254,6 +263,8 @@ const BuilderPage = () => {
       angle: n.angle,
     }));
     return {
+      // 兼容老后端需要的 canvas 字段
+      canvas: { width: canvasSize.width, height: canvasSize.height },
       factory: { length: canvasSize.width, width: canvasSize.height, grid_spacing: 1 },
       fus,
       obstacles,
@@ -425,7 +436,12 @@ const BuilderPage = () => {
 
     const snapshot: FactoryStateSnapshot = {
       materials: Array.from(materialSet).map((id) => ({ id })),
-      transporters: data.transporters || [],
+      transporters:
+        data.transporters?.map((t: any) => ({
+          id: t.id,
+          speed: Number(t.speed) || 0,
+          count: Number(t.count) || 1,
+        })) || [],
       nodes: Array.from(nodesMap.values()),
       assemblies: assembliesMapped,
       routes: routesMapped,
@@ -471,12 +487,17 @@ const BuilderPage = () => {
       setSavingBackend(true);
       const layoutCfg = buildLayoutConfig();
       const factoryCfg = buildFactoryConfig();
+      const formatErrors = (res: any) => {
+        const errs = res?.data?.validation?.errors;
+        if (Array.isArray(errs) && errs.length) return errs.join("; ");
+        return res?.message;
+      };
       const [resLayout, resFactory] = await Promise.all([
         configApi.saveLayoutConfig(layoutCfg),
         configApi.saveFactoryConfig(factoryCfg),
       ]);
-      if (resLayout.code !== 0) throw new Error(resLayout.message || "布局保存失败");
-      if (resFactory.code !== 0) throw new Error(resFactory.message || "工厂配置保存失败");
+      if (resLayout.code !== 0) throw new Error(formatErrors(resLayout) || "布局保存失败");
+      if (resFactory.code !== 0) throw new Error(formatErrors(resFactory) || "工厂配置保存失败");
       message.success("布局与工厂配置已保存到后端");
     } catch (e) {
       message.error(e instanceof Error ? e.message : "保存失败");
