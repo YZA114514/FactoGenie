@@ -4,6 +4,14 @@
     "width": 18,
     "grid_spacing": 1
   },
+  "constraints": {
+    "fixed_obstacles": ["cafeteria"],
+    "movable_obstacles": ["obstacle_2", "obstacle_3", "obstacle_4", "obstacle_5"],
+    "default_wall_attach": ["rec_dock", "ship_dock"],
+    "fixed_positions": [],
+    "adjacency": [],
+    "wall_attach": []
+  },
   "fus": [
     {
       "id": "rec_dock",

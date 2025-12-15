@@ -81,9 +81,9 @@ class ConfigLoader:
             }
         
         注意：
-            - fus: 全部读取（7个功能单元）
-            - obstacles: 只读取 obstacle_2 至 obstacle_5（4个可移动障碍物）
-            - cafeteria 固定不动，不参与摆放
+            - fus: 全部读取
+            - obstacles: 只读取 constraints.movable_obstacles 中指定的障碍物
+            - constraints.fixed_obstacles 中的障碍物固定不动，不参与摆放
         """
         functional_units = []
         
@@ -105,14 +105,18 @@ class ConfigLoader:
                 }
                 functional_units.append(unit)
         
-        # 2. 读取可移动的 obstacles（obstacle_2 至 obstacle_5）
-        # cafeteria 固定不动，不参与摆放
-        MOVABLE_OBSTACLES = {'obstacle_2', 'obstacle_3', 'obstacle_4', 'obstacle_5'}
+        # 2. 从配置读取可移动障碍物列表（不再硬编码）
+        movable_obstacles = set()
+        if self.layout_config and 'constraints' in self.layout_config:
+            movable_obstacles = set(self.layout_config['constraints'].get('movable_obstacles', []))
+        
+        # 如果配置中没有指定，使用空集合（不读取任何障碍物）
+        # 注意：为了向后兼容，如果没有 constraints 配置，则不读取任何可移动障碍物
         
         if self.layout_config and 'obstacles' in self.layout_config:
             for obs in self.layout_config['obstacles']:
                 obs_id = obs['id']
-                if obs_id in MOVABLE_OBSTACLES:
+                if obs_id in movable_obstacles:
                     unit = {
                         'id': obs_id,
                         'name': obs_id,
@@ -125,8 +129,8 @@ class ConfigLoader:
                         'buffer_out': {'capacity': 0, 'initial': 0},
                         'production_rate': 0,
                         'processing_time': 0.0,
-                }
-                functional_units.append(unit)
+                    }
+                    functional_units.append(unit)
         
         return functional_units
     
@@ -164,25 +168,36 @@ class ConfigLoader:
         获取摆放约束规则
         
         从布局配置文件读取约束规则，支持：
+        - fixed_obstacles: 固定障碍物（不参与摆放）
+        - default_wall_attach: 默认必须贴墙的单元
         - fixed_positions: 固定位置约束
         - adjacency: 相邻约束
-        - wall_attach: 贴墙约束
+        - wall_attach: 用户自定义贴墙约束
         
         Returns:
             约束规则字典
         """
         constraints = {
             'min_distance': 0,
-            'wall_units': ['rec_dock', 'ship_dock'],  # 默认贴墙单元
+            'wall_units': [],           # 默认贴墙单元（从配置读取）
             'restricted_areas': [],
-            'fixed_positions': [],   # [{unit_id, x, y, angle}, ...]
-            'adjacency': [],         # [{unit_a, unit_b, direction}, ...]
-            'wall_attach': [],       # [{unit_id, wall}, ...]
+            'fixed_obstacles': [],      # 固定障碍物ID列表
+            'fixed_positions': [],      # [{unit_id, x, y, angle}, ...]
+            'adjacency': [],            # [{unit_a, unit_b, direction}, ...]
+            'wall_attach': [],          # [{unit_id, wall}, ...]
         }
         
         # 从布局配置中读取自定义约束
         if self.layout_config and 'constraints' in self.layout_config:
             user_constraints = self.layout_config['constraints']
+            
+            # 读取固定障碍物（不参与摆放）
+            if 'fixed_obstacles' in user_constraints:
+                constraints['fixed_obstacles'] = user_constraints['fixed_obstacles']
+            
+            # 读取默认贴墙单元
+            if 'default_wall_attach' in user_constraints:
+                constraints['wall_units'] = user_constraints['default_wall_attach']
             
             if 'fixed_positions' in user_constraints:
                 constraints['fixed_positions'] = user_constraints['fixed_positions']

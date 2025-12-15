@@ -362,19 +362,20 @@ class LayoutEnvironment:
     
     def _mark_fixed_obstacles(self) -> None:
         """
-        在 layout_grid 上标记固定障碍物（如 cafeteria）
+        在 layout_grid 上标记固定障碍物
         这些障碍物不参与摆放，但其他单元不能与它们重叠
+        固定障碍物列表从 placement_constraints['fixed_obstacles'] 读取
         """
         if not self.layout_template:
             return
         
-        # 固定障碍物列表（不参与摆放的障碍物）
-        FIXED_OBSTACLES = {'cafeteria'}
+        # 从约束配置读取固定障碍物列表（不再硬编码）
+        fixed_obstacles = set(self.placement_constraints.get('fixed_obstacles', []))
         
         obstacles = self.layout_template.get('obstacles', [])
         for obs in obstacles:
             obs_id = obs.get('id', '')
-            if obs_id not in FIXED_OBSTACLES:
+            if obs_id not in fixed_obstacles:
                 continue
             
             # 获取位置和尺寸
@@ -869,8 +870,9 @@ class LayoutEnvironment:
         # 3. 检查贴墙约束
         unit_id = unit.get('id', unit.get('name', ''))
         
-        # 3a. 默认约束：rec_dock 和 ship_dock 必须贴墙
-        if unit_id in ['rec_dock', 'ship_dock']:
+        # 3a. 默认贴墙约束：从 placement_constraints['wall_units'] 读取（不再硬编码）
+        default_wall_units = self.placement_constraints.get('wall_units', [])
+        if unit_id in default_wall_units:
             at_left = (actual_x_min == 0)
             at_right = (actual_x_max == self.nx)
             at_bottom = (actual_y_min == 0)

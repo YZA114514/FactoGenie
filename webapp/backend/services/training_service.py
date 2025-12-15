@@ -24,12 +24,13 @@ class TrainingService:
         self.db = db
         self.data_dir = Path(__file__).parent.parent.parent.parent / "data"
     
-    def start_training(self, project_id: str) -> Dict:
+    def start_training(self, project_id: str, use_celery: bool = True) -> Dict:
         """
         启动训练任务
         
-        注意：实际的训练应该在后台进程或Celery任务中运行
-        这里只是更新状态并返回
+        Args:
+            project_id: 项目ID
+            use_celery: 是否使用Celery异步任务（False时同步阻塞）
         """
         project = crud.get_project(self.db, project_id)
         if not project:
@@ -45,17 +46,35 @@ class TrainingService:
         # 更新状态
         crud.update_project(self.db, project_id, status='running')
 
-        # 启动后台线程（本地同步训练；如需分布式可替换为 Celery）
-        t = threading.Thread(target=self._run_training_sync, args=(project_id, stop_event), daemon=True)
-        t.start()
-        self._running_tasks[project_id] = {"thread": t}
-        
-        return {
-            'success': True,
-            'project_id': project_id,
-            'status': 'running',
-        }
-
+        if use_celery:
+            # 启动Celery任务
+            try:
+                from workers.tasks import run_training_with_core
+                task = run_training_with_core.delay(project_id)
+                crud.update_project(self.db, project_id, celery_task_id=task.id)
+                
+                return {
+                    'success': True,
+                    'project_id': project_id,
+                    'task_id': task.id,
+                    'status': 'running',
+                }
+            except Exception as e:
+                crud.update_project(self.db, project_id, status='failed')
+                return {'success': False, 'error': f'Failed to start Celery task: {e}'}
+        else:
+            # 启动后台线程（本地同步训练）
+            t = threading.Thread(target=self._run_training_sync, args=(project_id, stop_event), daemon=True)
+            t.start()
+            self._running_tasks[project_id] = {"thread": t}
+            
+            return {
+                'success': True,
+                'project_id': project_id,
+                'status': 'running',
+                'message': 'Running in local thread',
+            }
+    
     def stop_training(self, project_id: str) -> Dict:
         """停止训练任务"""
         project = crud.get_project(self.db, project_id)
@@ -69,10 +88,21 @@ class TrainingService:
         if project_id in self._stop_events:
             self._stop_events[project_id].set()
         
-        # TODO: 取消Celery任务
-        # if project.celery_task_id:
-        #     celery_app.control.revoke(project.celery_task_id, terminate=True)
-
+        # 尝试发送停止信号到Celery任务（如果可用）
+        try:
+            from workers.tasks import stop_training_task
+            stop_training_task.delay(project_id)
+        except Exception as e:
+            print(f"Warning: Failed to send stop signal: {e}")
+        
+        # 取消Celery任务（如果有）
+        if hasattr(project, 'celery_task_id') and project.celery_task_id:
+            try:
+                from workers.celery_app import celery_app
+                celery_app.control.revoke(project.celery_task_id, terminate=True)
+            except Exception as e:
+                print(f"Warning: Failed to revoke Celery task: {e}")
+        
         crud.update_project(self.db, project_id, status='stopped')
         
         return {

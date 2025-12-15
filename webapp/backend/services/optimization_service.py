@@ -292,3 +292,7 @@ def evaluate_layout(layout_path: str, factory_config_path: str, duration: float 
         'station_utilization': results.get('station_utilization', {}),
     }
 
+
+
+
+
