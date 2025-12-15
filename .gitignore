@@ -18,6 +18,9 @@ data/checkpoints/
 data/results/
 data/calibrations/
 !data/.gitkeep
+# Ignore local DB and project checkpoints (keep configs)
+data/factogenie.db
+data/projects/**/checkpoints/
 
 # IDE
 .vscode/
