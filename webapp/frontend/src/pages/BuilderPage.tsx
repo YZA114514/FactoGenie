@@ -262,10 +262,11 @@ const BuilderPage = () => {
       movable: true,
       angle: n.angle,
     }));
+    const size = { width: canvasSize.width, height: canvasSize.height };
     return {
-      // 兼容老后端需要的 canvas 字段
-      canvas: { width: canvasSize.width, height: canvasSize.height },
-      factory: { length: canvasSize.width, width: canvasSize.height, grid_spacing: 1 },
+      // 兼容老后端需要的 canvas 字段，同时保留新版 factory
+      canvas: size,
+      factory: { length: size.width, width: size.height, grid_spacing: 1 },
       fus,
       obstacles,
     };
