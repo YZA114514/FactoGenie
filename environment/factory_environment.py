@@ -586,7 +586,7 @@ class LayoutEnvironment:
         if len(valid_actions) == 0:
             # 没有有效动作可用，直接结束episode，避免进入仿真
             print(f"⚠️ 步骤 {self.current_unit_idx + 1}: 没有有效动作，提前结束episode")
-            reward = -10.0  # 严重惩罚，鼓励agent学习避免这种情况
+            reward = -1.5  # 严重惩罚，鼓励agent学习避免这种情况
             done = True
             
             info = {

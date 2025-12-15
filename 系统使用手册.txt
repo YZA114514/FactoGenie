@@ -1,0 +1,111 @@
+
+系统使用手册
+
+目的：本手册面向使用者（包括不熟悉代码的用户），详述如何在本地运行后端与前端、如何准备并导入工厂/布局配置、如何启动训练并查看结果，以及常见问题排查与截图占位说明，便于写入最终文档或交付给使用者。
+
+一、准备与先决条件
+- 系统：Linux / macOS / Windows（有命令行操作能力）
+- Python：3.8 或以上（推荐 3.11）
+- Node.js：LTS 版本（包含 npm）
+- 建议安装：git
+
+二、克隆仓库
+1) 在命令行中执行：
+git clone <your-repo-url>
+cd FactoGenie-develop
+
+注：请将 `<your-repo-url>` 替换为你的仓库地址。
+
+三、后端（FastAPI）— 安装与运行
+推荐在虚拟环境中运行以避免污染系统依赖。
+
+1) 创建并激活虚拟环境：
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+2) 安装依赖：
+pip install -r requirements.txt
+
+3) 启动后端服务：
+python webapp/backend/run.py
+
+说明：启动后端默认监听 http://localhost:8000（API 前缀 /api）。若使用不同端口或部署在远程服务器，请记录后端地址并在前端配置中使用。
+
+四、前端（Vite + React）— 安装与运行
+在一个新的终端窗口或标签页中：
+
+1) 进入前端目录：
+cd webapp/frontend
+
+2) 安装依赖：
+npm install   # 或者使用 yarn
+
+3) 配置后端地址（本地开发示例）：
+在 webapp/frontend 下创建文件 .env（或 .env.local），内容为：
+VITE_API_BASE_URL=http://localhost:8000/api
+
+4) 启动开发服务器：
+npm run dev
+
+在浏览器打开 http://localhost:5173 即可访问前端界面。
+
+五、准备工厂与布局配置（文件格式说明）
+- layout.json 应包含工厂尺寸（factory.length / factory.width 或 canvas.width / canvas.height），以及功能单元（fus）与障碍物（obstacles）的尺寸和可选坐标。
+- factory.json 应包含初始库存（initial_inventory）、工序（assemblies）、路线（routes）与运输工具（transporters）等信息。
+
+六、使用指南（按操作顺序）
+
+6.1 Builder（建模）
+- 导入：点击“导入 factory.json”或“导入 layout.json”将配置加载到界面。
+- 添加物料与运输工具：在“基础资源”区域添加物料与车辆信息，用于后续工序与路线配置。
+- 新建节点（FU / Obstacle）：填写 ID、尺寸、缺角与角度（FU 可设置初始库存）。
+- 配置工序：将产出物料与配方绑定到 FU 节点。
+- 画布连线并配置路线：在画布上连接两个 FU 节点（Obstacle 不支持连线），填写物料、运输工具与批量信息。
+- 保存/导出：可将当前状态导出为 layout.json 与 factory.json，或保存到后端（需后端服务可用）。
+
+截图占位（请在完成后替换为截图）：
+- Builder 主界面（含导入/资源/画布）
+- 节点添加表单示例
+- 路线配置对话框示例
+
+6.2 Training（训练控制）
+- 创建项目并启动训练：填写项目名称，可选描述，选择成品节点/成品物料，可粘贴训练参数 JSON（可留空使用默认），点击“创建并启动训练”。
+- 控制：可使用暂停、恢复、停止按钮管理训练；创建后表单会回填项目 ID，便于后续查询。
+- 状态查看：页面将显示训练状态、当前步骤、当前 Episode 与最佳奖励等信息。
+
+截图占位：Training 页面表单与状态面板
+
+6.3 Records（训练记录）
+- 功能：列出已有训练项目，支持复制项目 ID（用于 Results 页面）与删除项目。
+
+截图占位：Records 页面表格
+
+6.4 Results（结果查看）
+- 加载结果：输入或选择项目 ID，点击“加载结果”获取最佳布局、指标数据与布局历史。
+- 视图：页面会展示最佳布局的可视化预览（支持旋转/缺角形状），指标时间序列（如 reward）以及每个检查点的布局 JSON。
+
+截图占位：最佳布局预览、指标曲线面板
+
+七、常见问题与排查
+- 如果前端无法与后端通信：确认后端正在运行并且前端环境变量 `VITE_API_BASE_URL` 指向正确地址。
+- 如果后端启动失败：确认虚拟环境已激活且已安装依赖，查看启动日志中的错误信息以定位缺失依赖或端口占用等问题。
+- 如果导入/导出 JSON 出错：确认 JSON 格式正确（可以使用在线 JSON 校验工具）；Builder 支持常见字段但字段名需匹配示例。
+- 如何重现一份干净的环境：删除本地虚拟环境（如果存在），重新创建并安装依赖；示例命令见三/四节。
+
+八、其它注意事项
+- 仓库中不应提交本地虚拟环境或依赖产物（已将 `webapp/backend/.venv` 从版本控制中移除）。
+- 大型模型或检查点应使用外部存储或 GitHub Releases 上传，避免将大文件提交到仓库中。
+
+九、截图占位清单（便于后续替换为实际图片）
+- Builder 主界面：导入/资源/画布
+- Builder 节点/工序表单示例
+- Builder 路线配置对话框
+- Training 页面（创建并启动/状态）
+- Records 页面（项目列表）
+- Results 页面（最佳布局预览与指标曲线）
+
+十、联系方式与贡献
+- 若发现问题或有功能建议，请在仓库中创建 Issue 或发起 Pull Request；贡献流程请参阅 `CONTRIBUTING.md`。
+
+（完）
+
