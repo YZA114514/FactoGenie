@@ -13,7 +13,22 @@ import type {
   FactoryStateSnapshot,
 } from "../types/factory";
 
+// 训练状态类型
+interface TrainingStatus {
+  status: string;
+  current_step?: number;
+  current_episode?: number;
+  best_reward?: number;
+  total_steps?: number;
+}
+
 interface FactoryStoreState extends FactoryStateSnapshot {
+  // 训练相关状态
+  currentProjectId: string | null;
+  trainingStatus: TrainingStatus | null;
+  setCurrentProjectId: (id: string | null) => void;
+  setTrainingStatus: (status: TrainingStatus | null) => void;
+
   addMaterial: (material: Material) => void;
   removeMaterial: (id: MaterialId) => void;
   upsertMaterial: (material: Material) => void;
@@ -85,6 +100,11 @@ const cleanupForNode = (state: FactoryStoreState, id: NodeId) => {
 
 export const useFactoryStore = create<FactoryStoreState>((set) => ({
   ...initialState,
+  currentProjectId: null,
+  trainingStatus: null,
+
+  setCurrentProjectId: (id) => set({ currentProjectId: id }),
+  setTrainingStatus: (status) => set({ trainingStatus: status }),
 
   setSnapshot: (snapshot) =>
     set(() => ({
@@ -93,7 +113,7 @@ export const useFactoryStore = create<FactoryStoreState>((set) => ({
       canvasSize: snapshot.canvasSize ?? initialState.canvasSize,
     })),
 
-  reset: () => set(initialState),
+  reset: () => set({ ...initialState, currentProjectId: null, trainingStatus: null }),
   setCanvasSize: (w, h) =>
     set((state) => ({
       ...state,

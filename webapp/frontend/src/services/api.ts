@@ -107,16 +107,6 @@ export const trainingApi = {
     return res.data;
   },
 
-  pauseProject: async (projectId: string) => {
-    const res = await api.post<ApiResponse<{ status: string }>>(`/training/projects/${projectId}/pause`);
-    return res.data;
-  },
-
-  resumeProject: async (projectId: string) => {
-    const res = await api.post<ApiResponse<{ status: string }>>(`/training/projects/${projectId}/resume`);
-    return res.data;
-  },
-
   getStatus: async (projectId: string) => {
     const res = await api.get<ApiResponse<TrainingProgress>>(`/training/projects/${projectId}/status`);
     return res.data;

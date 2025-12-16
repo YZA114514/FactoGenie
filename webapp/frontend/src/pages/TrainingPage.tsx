@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Card,
   Typography,
@@ -12,7 +12,7 @@ import {
   Row,
   Col,
 } from "antd";
-import { PlayCircleOutlined, PauseOutlined, StopOutlined, ReloadOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, StopOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useFactoryStore } from "../store/factoryStore";
 import type { LayoutConfig, FactoryConfig } from "../types";
 import { trainingApi } from "../services/api";
@@ -20,7 +20,10 @@ import { trainingApi } from "../services/api";
 const { Title, Paragraph, Text } = Typography;
 
 const TrainingPage = () => {
-  const { nodes, assemblies, routes, routeConfigs, materials, transporters, canvasSize } = useFactoryStore();
+  const { 
+    nodes, assemblies, routes, routeConfigs, materials, transporters, canvasSize,
+    currentProjectId, trainingStatus, setCurrentProjectId, setTrainingStatus
+  } = useFactoryStore();
   const [form] = Form.useForm<{
     name: string;
     description?: string;
@@ -30,7 +33,29 @@ const TrainingPage = () => {
     projectId?: string;
   }>();
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<any>(null);
+
+  // 页面加载时恢复之前的项目ID
+  useEffect(() => {
+    if (currentProjectId) {
+      form.setFieldsValue({ projectId: currentProjectId });
+      // 自动刷新状态
+      refreshStatus(currentProjectId);
+    }
+  }, []);
+
+  // 刷新状态的辅助函数
+  const refreshStatus = async (projectId?: string) => {
+    const id = projectId || form.getFieldValue("projectId") || currentProjectId;
+    if (!id) return;
+    try {
+      const res = await trainingApi.getStatus(id);
+      if (res.data) {
+        setTrainingStatus(res.data);
+      }
+    } catch (e) {
+      console.error("Failed to refresh status", e);
+    }
+  };
 
   const fuNodes = useMemo(() => nodes.filter((n) => n.type === "FU"), [nodes]);
   const fuOptions = fuNodes.map((n) => ({ label: n.id, value: n.id }));
@@ -135,12 +160,12 @@ const TrainingPage = () => {
       if (resCreate.code !== 0) throw new Error(resCreate.message || "创建项目失败");
       const projectId = resCreate.data.project_id;
       form.setFieldsValue({ projectId });
+      setCurrentProjectId(projectId);  // 保存到全局状态
       message.success(`项目已创建：${projectId}`);
       const resStart = await trainingApi.startProject(projectId);
       if (resStart.code !== 0) throw new Error(resStart.message || "启动失败");
       message.success("训练已启动");
-      const resStatus = await trainingApi.getStatus(projectId);
-      setStatus(resStatus.data);
+      await refreshStatus(projectId);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "操作失败，检查训练参数 JSON 是否有效");
     } finally {
@@ -148,20 +173,17 @@ const TrainingPage = () => {
     }
   };
 
-  const handleAction = async (action: "stop" | "pause" | "resume") => {
-    const projectId = form.getFieldValue("projectId");
+  const handleStop = async () => {
+    const projectId = form.getFieldValue("projectId") || currentProjectId;
     if (!projectId) {
       message.warning("请先创建/填写项目ID");
       return;
     }
     setLoading(true);
     try {
-      if (action === "stop") await trainingApi.stopProject(projectId);
-      if (action === "pause") await trainingApi.pauseProject(projectId);
-      if (action === "resume") await trainingApi.resumeProject(projectId);
-      message.success(`已执行 ${action}`);
-      const resStatus = await trainingApi.getStatus(projectId);
-      setStatus(resStatus.data);
+      await trainingApi.stopProject(projectId);
+      message.success("训练已停止");
+      await refreshStatus(projectId);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "操作失败");
     } finally {
@@ -169,11 +191,22 @@ const TrainingPage = () => {
     }
   };
 
-  const refreshStatus = async () => {
+  const handleLoadProject = async () => {
     const projectId = form.getFieldValue("projectId");
-    if (!projectId) return;
-    const res = await trainingApi.getStatus(projectId);
-    setStatus(res.data);
+    if (!projectId) {
+      message.warning("请输入项目ID");
+      return;
+    }
+    setLoading(true);
+    try {
+      setCurrentProjectId(projectId);
+      await refreshStatus(projectId);
+      message.success("已加载项目状态");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -228,34 +261,29 @@ const TrainingPage = () => {
         <Button type="primary" icon={<PlayCircleOutlined />} loading={loading} onClick={handleCreateAndStart}>
           创建并启动训练
         </Button>
-        <Button icon={<PauseOutlined />} disabled={loading} onClick={() => handleAction("pause")}>
-          暂停
-        </Button>
-        <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => handleAction("resume")}>
-          恢复
-        </Button>
-        <Button danger icon={<StopOutlined />} disabled={loading} onClick={() => handleAction("stop")}>
+        <Button danger icon={<StopOutlined />} disabled={loading} onClick={handleStop}>
           停止
         </Button>
-        <Button onClick={refreshStatus}>刷新状态</Button>
+        <Button icon={<ReloadOutlined />} onClick={() => refreshStatus()}>刷新状态</Button>
+        <Button onClick={handleLoadProject}>加载已有项目</Button>
       </Space>
 
-      {status ? (
+      {trainingStatus ? (
         <Alert
           showIcon
-          type="info"
-          message="当前状态"
+          type={trainingStatus.status === 'running' ? 'success' : trainingStatus.status === 'completed' ? 'info' : 'warning'}
+          message={`当前状态: ${trainingStatus.status}`}
           description={
             <Space direction="vertical">
-              <Text>status: {status.status}</Text>
-              <Text>current_step: {status.current_step ?? "-"}</Text>
-              <Text>current_episode: {status.current_episode ?? "-"}</Text>
-              <Text>best_reward: {status.best_reward ?? "-"}</Text>
+              <Text>项目ID: {currentProjectId || form.getFieldValue("projectId") || "-"}</Text>
+              <Text>当前步数: {trainingStatus.current_step ?? "-"} / {trainingStatus.total_steps ?? "-"}</Text>
+              <Text>当前回合: {trainingStatus.current_episode ?? "-"}</Text>
+              <Text>最佳奖励: {trainingStatus.best_reward?.toFixed(4) ?? "-"}</Text>
             </Space>
           }
         />
       ) : (
-        <Alert type="warning" showIcon message="尚未查询到状态" />
+        <Alert type="warning" showIcon message="尚未查询到状态，请创建项目或输入已有项目ID后点击加载" />
       )}
 
       <Alert
@@ -263,7 +291,7 @@ const TrainingPage = () => {
         showIcon
         style={{ marginTop: 16 }}
         message="提示"
-        description="当前后端使用本地线程运行训练，若需分布式/异步，请改为 Celery + Redis。"
+        description="训练状态会在页面切换后保留。输入已有项目ID并点击「加载已有项目」可恢复查看之前的训练。"
       />
     </Card>
   );
