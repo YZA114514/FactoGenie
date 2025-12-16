@@ -111,34 +111,6 @@ class TrainingService:
             'status': 'stopped',
         }
     
-    def pause_training(self, project_id: str) -> Dict:
-        """暂停训练"""
-        project = crud.get_project(self.db, project_id)
-        if not project:
-            return {'success': False, 'error': 'Project not found'}
-        
-        crud.update_project(self.db, project_id, status='paused')
-        
-        return {
-            'success': True,
-            'project_id': project_id,
-            'status': 'paused',
-        }
-    
-    def resume_training(self, project_id: str) -> Dict:
-        """恢复训练"""
-        project = crud.get_project(self.db, project_id)
-        if not project:
-            return {'success': False, 'error': 'Project not found'}
-        
-        crud.update_project(self.db, project_id, status='running')
-        
-        return {
-            'success': True,
-            'project_id': project_id,
-            'status': 'running',
-        }
-    
     def get_progress(self, project_id: str) -> Optional[Dict]:
         """获取训练进度"""
         project = crud.get_project(self.db, project_id)

@@ -33,11 +33,18 @@ def collect(events, tracked):
 
 def derive_monitors(config_data):
     if "monitor" in config_data:
-        return [
-            (item.get("node"), item.get("material"))
-            for item in config_data["monitor"]
-            if item.get("node") and item.get("material")
-        ]
+        monitors = []
+        for item in config_data["monitor"]:
+            node = item.get("node")
+            material = item.get("material")
+            if node and material:
+                # 处理 material 可能是列表的情况
+                if isinstance(material, list):
+                    for mat in material:
+                        monitors.append((node, mat))
+                else:
+                    monitors.append((node, material))
+        return monitors
 
     monitors = []
     for assembly in config_data.get("assemblies", []):
@@ -48,6 +55,9 @@ def derive_monitors(config_data):
     summary = config_data.get("summary", {})
     node = summary.get("finished_node")
     material = summary.get("finished_material")
+    # 处理 material 可能是列表的情况
+    if isinstance(material, list):
+        material = material[0] if material else None
     if node and material:
         monitors.append((node, material))
     return monitors

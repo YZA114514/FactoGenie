@@ -39,18 +39,26 @@ def build_model(
     assemblies_cfg = config.get("assemblies", [])
     transporters_cfg = config.get("transporters", [])
 
-    routes = [
-        RouteConfig(
-            from_node=item["from"],
-            to_node=item["to"],
-            material=item["material"],
-            batch_size=float(item.get("batch_size", 0.0)),
-            travel_time=float(item.get("travel_time", 0.0)),
-            transporter_id=item.get("transporter_id"),
-            path_points=[tuple(pt) for pt in item.get("path_points", [])] if item.get("path_points") else None,
-        )
-        for item in routes_cfg
-    ]
+    routes = []
+    for item in routes_cfg:
+        # 处理 material 可能是列表或字符串的情况
+        material_raw = item["material"]
+        if isinstance(material_raw, list):
+            # 如果是列表，为每种物料创建单独的路由
+            materials = material_raw
+        else:
+            materials = [material_raw]
+        
+        for mat in materials:
+            routes.append(RouteConfig(
+                from_node=item["from"],
+                to_node=item["to"],
+                material=mat,
+                batch_size=float(item.get("batch_size", 0.0)),
+                travel_time=float(item.get("travel_time", 0.0)),
+                transporter_id=item.get("transporter_id"),
+                path_points=[tuple(pt) for pt in item.get("path_points", [])] if item.get("path_points") else None,
+            ))
 
     assemblies = [
         AssemblyConfig(

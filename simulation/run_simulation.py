@@ -48,6 +48,9 @@ def determine_summary(config_data, sim):
         # fall back to the first assembly output or any material present at the node
         outputs = [assembly.get("output") for assembly in config_data.get("assemblies", [])]
         material = outputs[-1] if outputs else None
+    # 处理 material 可能是列表的情况
+    if isinstance(material, list):
+        material = material[0] if material else None
     return node, material
 
 

@@ -167,40 +167,6 @@ async def stop_training(
     }
 
 
-@router.post("/projects/{project_id}/pause")
-async def pause_training(
-    project_id: str,
-    service: TrainingService = Depends(get_training_service),
-):
-    """暂停训练"""
-    result = service.pause_training(project_id)
-    
-    if not result['success']:
-        return {"code": 2002, "message": result['error'], "data": None}
-    
-    return {
-        "code": 0,
-        "data": {"status": result['status']}
-    }
-
-
-@router.post("/projects/{project_id}/resume")
-async def resume_training(
-    project_id: str,
-    service: TrainingService = Depends(get_training_service),
-):
-    """恢复训练"""
-    result = service.resume_training(project_id)
-    
-    if not result['success']:
-        return {"code": 2002, "message": result['error'], "data": None}
-    
-    return {
-        "code": 0,
-        "data": {"status": result['status']}
-    }
-
-
 @router.get("/projects/{project_id}/status")
 async def get_training_status(
     project_id: str,
