@@ -136,7 +136,8 @@ async def start_training(
     service: TrainingService = Depends(get_training_service),
 ):
     """启动训练"""
-    result = service.start_training(project_id)
+    # 默认使用本地线程，避免 Celery 未配置时的延迟
+    result = service.start_training(project_id, use_celery=False)
     
     if not result['success']:
         return {"code": 2001, "message": result['error'], "data": None}

@@ -132,6 +132,16 @@ class ConfigLoader:
                     }
                     functional_units.append(unit)
         
+        # 按面积降序排序：大单元先放置，避免空间碎片化
+        # 这是装箱问题（bin packing）的经典优化策略
+        functional_units.sort(key=lambda u: u['size'][0] * u['size'][1], reverse=True)
+        
+        # 打印放置顺序（调试用）
+        print(f"[放置顺序] 按面积降序排列:")
+        for i, u in enumerate(functional_units):
+            area = u['size'][0] * u['size'][1]
+            print(f"  {i+1}. {u['id']}: {u['size']} (面积: {area})")
+        
         return functional_units
     
     def get_material_flow(self, functional_units: List[Dict]) -> np.ndarray:

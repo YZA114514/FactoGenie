@@ -121,7 +121,7 @@ interface Constraints {
 
 > 校准流程：
 > 1. 运行 N 次随机摆放，收集各项指标
-> 2. 使用 P15 作为 best 边界，P90 作为 worst 边界
+> 2. 使用 P20 作为 best 边界，P90 作为 worst 边界
 > 3. 结果缓存到 `data/calibrations/`，配置不变则复用
 > 
 > 建议首次训练时设置 `calibrate_episodes=100`，后续相同配置可设为 0

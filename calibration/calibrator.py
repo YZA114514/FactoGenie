@@ -66,7 +66,7 @@ class Calibrator:
     def calibrate(
         self,
         n_episodes: int = 100,
-        best_percentile: float = 15,
+        best_percentile: float = 20,
         worst_percentile: float = 90,
         verbose: bool = True,
     ) -> Dict[str, Dict[str, float]]:
@@ -75,7 +75,7 @@ class Calibrator:
         
         Args:
             n_episodes: 随机摆放的回合数
-            best_percentile: 最优值的分位线（如15表示P15）
+            best_percentile: 最优值的分位线（如20表示P20，即最优20%作为best值）
             worst_percentile: 最差值的分位线（如90表示P90）
             verbose: 是否显示进度
             
@@ -115,31 +115,69 @@ class Calibrator:
             
             while not done:
                 # 随机选择动作
-                valid_actions = env._get_valid_actions()
+                valid_actions = env.get_valid_actions()  # 使用公共方法，不是私有方法
                 if len(valid_actions) == 0:
                     break
-                action = np.random.choice(valid_actions)
-                _, _, done, _, _ = env.step(action)
+                # 从有效动作列表中选择一个（valid_actions 是字典列表）
+                action_idx = np.random.randint(len(valid_actions))
+                action = valid_actions[action_idx]
+                _, _, done, _ = env.step(action)  # step() 返回 4 个值：state, reward, done, info
+            
+            # 检查是否所有单元都已放置（只有完整布局才进行仿真）
+            num_placed = len(env.placed_units)
+            num_total = env.num_units
+            if num_placed < num_total:
+                # 提前终止，跳过此 episode（未完成布局会导致仿真错误）
+                continue
             
             # 运行仿真获取指标
-            layout_json = env._generate_layout_json()
+            # 使用 LayoutExporter 生成布局 JSON 字典
+            from environment.layout_exporter import LayoutExporter
+            import tempfile
+            import json
+            
+            # 获取布局模板（从环境内部获取）
+            layout_template = env.layout_template if hasattr(env, 'layout_template') else None
+            if not layout_template:
+                if verbose:
+                    print(f"警告: 无法获取布局模板，跳过此episode")
+                continue
+            
+            exporter = LayoutExporter(layout_template, None)  # 不需要输出路径，只生成字典
+            layout_json = exporter.export_layout_dict(
+                env.placed_units,
+                env.functional_units
+            )
+            
+            # 将布局字典写入临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False, encoding='utf-8') as tmp_file:
+                json.dump(layout_json, tmp_file, indent=2, ensure_ascii=False)
+                temp_layout_path = tmp_file.name
+            
             try:
-                sim_results = compute_metrics(
-                    layout_json,
+                # compute_metrics 的参数顺序：config_path, duration, layout_path=...
+                result = compute_metrics(
                     self.factory_config_path,
-                    duration=self.simulation_duration,
+                    self.simulation_duration,
+                    layout_path=temp_layout_path,
                     detail=False,
                 )
                 
-                # 提取指标
-                metrics_list['distance'].append(sim_results.get('average_route_distance', 0))
-                metrics_list['logistics'].append(sim_results.get('total_logistics_intensity', 0))
-                metrics_list['throughput'].append(sim_results.get('finished_goods', 0))
+                # 从返回结果中提取指标
+                summary = result.get('summary', {})
+                static = summary.get('static', {})
+                dynamic = summary.get('dynamic', {})
+                
+                metrics_list['distance'].append(static.get('average_route_distance', 0))
+                metrics_list['logistics'].append(static.get('total_logistics_intensity', 0))
+                metrics_list['throughput'].append(dynamic.get('finished_goods', 0))
                 
                 # 计算平均利用率
-                station_util = sim_results.get('station_utilization', {})
+                station_util = dynamic.get('station_utilization', {})
                 if station_util:
-                    avg_util = sum(station_util.values()) / len(station_util)
+                    # station_util 是字典，每个值是一个包含 'utilization' 的字典
+                    util_values = [v.get('utilization', 0) if isinstance(v, dict) else v for v in station_util.values()]
+                    avg_util = sum(util_values) / len(util_values) if util_values else 0
                 else:
                     avg_util = 0
                 metrics_list['utilization'].append(avg_util)
@@ -148,9 +186,27 @@ class Calibrator:
                 if verbose:
                     print(f"仿真失败: {e}")
                 continue
+            finally:
+                # 清理临时文件
+                try:
+                    Path(temp_layout_path).unlink()
+                except:
+                    pass
         
         # 计算分位数边界
         bounds = {}
+        
+        # 检查是否有足够的成功 episode
+        successful_episodes = len(metrics_list['distance'])
+        if successful_episodes == 0:
+            if verbose:
+                print(f"\n警告: 没有成功完成的 episode！当前配置可能导致所有布局无法完整放置。")
+                print(f"建议：检查工厂尺寸和功能单元尺寸是否匹配。")
+            return {}
+        elif successful_episodes < n_episodes * 0.1:
+            if verbose:
+                print(f"\n警告: 只有 {successful_episodes}/{n_episodes} 个 episode 成功完成布局。")
+                print(f"校准结果可能不够准确，建议增加 episode 数量或检查配置。")
         
         for metric_name, values in metrics_list.items():
             if len(values) == 0:

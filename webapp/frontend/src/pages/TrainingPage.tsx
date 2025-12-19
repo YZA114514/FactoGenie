@@ -12,10 +12,10 @@ import {
   Row,
   Col,
 } from "antd";
-import { PlayCircleOutlined, StopOutlined, ReloadOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, StopOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
 import { useFactoryStore } from "../store/factoryStore";
 import type { LayoutConfig, FactoryConfig } from "../types";
-import { trainingApi } from "../services/api";
+import { trainingApi, calibrationApi } from "../services/api";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -33,6 +33,7 @@ const TrainingPage = () => {
     projectId?: string;
   }>();
   const [loading, setLoading] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
 
   // 页面加载时恢复之前的项目ID
   useEffect(() => {
@@ -92,11 +93,51 @@ const TrainingPage = () => {
         x: n.x,
         y: n.y,
       }));
+    
+    // 构建 constraints：区分固定和可移动障碍物
+    const fuIds = fus.map((f) => f.id);
+    
+    // 识别固定障碍物（根据ID或位置判断）
+    // 如果obstacle有固定位置（x, y已设置）且ID是常见固定障碍物，则标记为固定
+    const fixedObstacleIds: string[] = [];
+    const movableObstacleIds: string[] = [];
+    
+    obstacles.forEach((obs) => {
+      const obsId = obs.id.toLowerCase();
+      // 常见固定障碍物ID（如cafeteria）
+      // 注意：cafeteria 是固定障碍物，不应该参与摆放
+      const isCommonFixed = obsId.includes('cafeteria') || obsId === 'cafeteria';
+      if (isCommonFixed) {
+        fixedObstacleIds.push(obs.id);
+        console.log(`[约束] 识别固定障碍物: ${obs.id}`);
+      } else {
+        movableObstacleIds.push(obs.id);
+        console.log(`[约束] 识别可移动障碍物: ${obs.id}`);
+      }
+    });
+    
+    console.log(`[约束] 固定障碍物: ${fixedObstacleIds}, 可移动障碍物: ${movableObstacleIds}`);
+    
+    // 默认需要贴墙的单元（通常是 dock 类型）
+    const defaultWallAttach = fuIds.filter((id) => 
+      id.toLowerCase().includes('dock') || 
+      id.toLowerCase().includes('rec') || 
+      id.toLowerCase().includes('ship')
+    );
+    
     return {
       factory: { length: canvasSize.width, width: canvasSize.height, grid_spacing: 1 },
       canvas: { width: canvasSize.width, height: canvasSize.height }, // 兼容旧字段
       fus,
       obstacles,
+      constraints: {
+        fixed_obstacles: fixedObstacleIds, // 固定障碍物（不参与摆放）
+        movable_obstacles: movableObstacleIds, // 可移动障碍物（参与摆放）
+        default_wall_attach: defaultWallAttach, // 默认 dock 类型需要贴墙
+        fixed_positions: [],
+        adjacency: [],
+        wall_attach: [],
+      },
     };
   };
 
@@ -148,12 +189,13 @@ const TrainingPage = () => {
       const finishedNode = form.getFieldValue("finishedNode");
       const finishedMaterial = form.getFieldValue("finishedMaterial");
 
+      const layoutConfig = buildLayoutConfig();
       const payload = {
         name: values.name,
         description: form.getFieldValue("description"),
         factory_config: buildFactoryConfig(finishedNode, finishedMaterial),
-        layout_config: buildLayoutConfig(),
-        constraints: undefined,
+        layout_config: layoutConfig,
+        constraints: layoutConfig.constraints, // 使用 layout_config 中的 constraints
         training_params: parsedParams,
       };
       const resCreate = await trainingApi.createProject(payload);
@@ -165,7 +207,11 @@ const TrainingPage = () => {
       const resStart = await trainingApi.startProject(projectId);
       if (resStart.code !== 0) throw new Error(resStart.message || "启动失败");
       message.success("训练已启动");
-      await refreshStatus(projectId);
+      // 异步刷新状态，不阻塞UI
+      refreshStatus(projectId).catch(err => {
+        console.warn("Failed to refresh status immediately:", err);
+        // 不显示错误，因为训练可能还在启动中
+      });
     } catch (e) {
       message.error(e instanceof Error ? e.message : "操作失败，检查训练参数 JSON 是否有效");
     } finally {
@@ -206,6 +252,53 @@ const TrainingPage = () => {
       message.error(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForceRecalibrate = async () => {
+    try {
+      setCalibrating(true);
+      const finishedNode = form.getFieldValue("finishedNode");
+      const finishedMaterial = form.getFieldValue("finishedMaterial");
+      
+      const factoryConfig = buildFactoryConfig(finishedNode, finishedMaterial);
+      const layoutConfig = buildLayoutConfig();
+      
+      message.info("开始强制重新校准指标边界，这可能需要几分钟...");
+      
+      // 减少校准episode数以加快速度（50个episode通常足够）
+      const res = await calibrationApi.runCalibration({
+        factory_config: factoryConfig,
+        layout_config: layoutConfig,
+        n_episodes: 50, // 减少到50个episode以加快速度
+        simulation_duration: 2000,
+        force_recalibrate: true, // 强制重新校准
+      });
+      
+      if (res.code !== 0) {
+        throw new Error(res.message || "校准失败");
+      }
+      
+      message.success(
+        `校准完成！指标边界已更新。配置哈希: ${res.data?.config_hash || "N/A"}`,
+        5
+      );
+      
+      // 显示校准结果
+      if (res.data?.bounds) {
+        const bounds = res.data.bounds;
+        console.log("校准结果:", bounds);
+        message.info(
+          `距离: [${bounds.distance?.best?.toFixed(2) || "N/A"}, ${bounds.distance?.worst?.toFixed(2) || "N/A"}] | ` +
+          `物流: [${bounds.logistics?.best?.toFixed(2) || "N/A"}, ${bounds.logistics?.worst?.toFixed(2) || "N/A"}] | ` +
+          `吞吐: [${bounds.throughput?.best?.toFixed(2) || "N/A"}, ${bounds.throughput?.worst?.toFixed(2) || "N/A"}]`,
+          8
+        );
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "校准失败");
+    } finally {
+      setCalibrating(false);
     }
   };
 
@@ -266,6 +359,14 @@ const TrainingPage = () => {
         </Button>
         <Button icon={<ReloadOutlined />} onClick={() => refreshStatus()}>刷新状态</Button>
         <Button onClick={handleLoadProject}>加载已有项目</Button>
+        <Button 
+          icon={<SyncOutlined />} 
+          loading={calibrating} 
+          onClick={handleForceRecalibrate}
+          title="强制重新计算奖励指标的上下界（基于当前配置）"
+        >
+          强制更新指标边界
+        </Button>
       </Space>
 
       {trainingStatus ? (

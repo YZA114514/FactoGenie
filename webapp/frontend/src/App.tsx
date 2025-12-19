@@ -26,8 +26,12 @@ const navItems = [
 
 const App = () => {
   const { pathname } = useLocation();
-  const activeKey = navItems.find((item) => pathname.startsWith(`/${item.key === 'home' ? '' : item.key}`))
-    ?.key;
+  const activeKey = navItems.find((item) => {
+    if (item.key === 'home') {
+      return pathname === '/';
+    }
+    return pathname.startsWith(`/${item.key}`);
+  })?.key;
 
   return (
     <Layout style={{ minHeight: '100vh' }}>

@@ -434,9 +434,9 @@ class LayoutEnvironment:
                 if 0 <= cx < self.nx and 0 <= cy < self.ny:
                     self.layout_grid[cx, cy] = unit_idx + 1
             
-            # 记录放置信息
-            self.placed_units.append((unit_id, x, y, angle))
-            print(f"[固定约束] 预放置单元 {unit_id} 在 ({x}, {y}) 角度 {angle}°")
+            # 记录放置信息（使用 unit_idx 保持一致性）
+            self.placed_units.append((unit_idx, x, y, angle))
+            print(f"[固定约束] 预放置单元 {unit_id} (idx={unit_idx}) 在 ({x}, {y}) 角度 {angle}°")
     
     def _skip_fixed_units(self) -> None:
         """
@@ -582,18 +582,42 @@ class LayoutEnvironment:
             done: 是否结束
             info: 额外信息
         """
+        # 获取当前功能单元（在检查有效动作之前，以便记录信息）
+        unit = self.functional_units[self.current_unit_idx]
+        unit_id = unit.get('id', unit.get('name', ''))
+        is_obstacle = unit.get('is_obstacle', False)
+        
         # 首先检查是否还有有效动作（提前失败机制）
         valid_actions = self.get_valid_actions()
         if len(valid_actions) == 0:
             # 没有有效动作可用，直接结束episode，避免进入仿真
-            print(f"⚠️ 步骤 {self.current_unit_idx + 1}: 没有有效动作，提前结束episode")
-            reward = -1.5  # 严重惩罚，鼓励agent学习避免这种情况
+            # 计算空间使用情况
+            placed_occupied = np.sum(self.layout_grid > 0)
+            fixed_occupied = np.sum(self.layout_grid == -1)
+            free_cells = np.sum(self.layout_grid == 0)
+            unit_size = unit.get('size', (0, 0))
+            unit_area = unit_size[0] * unit_size[1] if len(unit_size) >= 2 else 0
+            
+            print(f"⚠️ [Episode {self.episode_counter + 1}] 步骤 {self.current_unit_idx + 1}/{self.num_units}: 单元 {unit_id} (obstacle: {is_obstacle}, 尺寸: {unit_size}) 没有有效动作，提前结束episode")
+            print(f"   已放置: {len(self.placed_units)}/{self.num_units}, 工厂尺寸: {self.grid_size}")
+            print(f"   空间使用: 已放置={placed_occupied}, 固定障碍物={fixed_occupied}, 空闲={free_cells}, 需要={unit_area}")
+            
+            # 检查是否需要贴墙
+            needs_wall = unit_id in self.placement_constraints.get('wall_units', [])
+            if needs_wall:
+                print(f"   该单元需要贴墙，可能限制了有效位置")
+            
+            print(f"   ⚠️ 提前终止，不进入仿真，直接给予惩罚奖励: -1.0")
+            
+            reward = -1.0  # 最大惩罚，但保持在有效范围内
             done = True
             
             info = {
                 'error': 'No valid actions available',
                 'placed_units': len(self.placed_units),
                 'total_units': self.num_units,
+                'current_unit_id': unit_id,
+                'current_unit_is_obstacle': is_obstacle,
                 'early_termination': True
             }
             metrics_payload = self._record_episode_metrics(
@@ -602,9 +626,6 @@ class LayoutEnvironment:
             )
             info['metrics'] = metrics_payload
             return self._get_state(), reward, done, info
-        
-        # 获取当前功能单元
-        unit = self.functional_units[self.current_unit_idx]
         
         # 解析动作
         x, y = action['x'], action['y']
@@ -642,7 +663,7 @@ class LayoutEnvironment:
         if done and self._adjacency_constraints:
             if not self._check_adjacency_constraints():
                 # 相邻约束不满足，布局无效
-                reward = -5.0  # 惩罚
+                reward = -1.0  # 最大惩罚，但保持在有效范围内
                 info['error'] = 'Adjacency constraints not satisfied'
                 info['constraint_violation'] = True
                 print(f"⚠️ 布局完成但相邻约束不满足，奖励={reward}")
@@ -650,6 +671,9 @@ class LayoutEnvironment:
                 reward = self._calculate_reward(is_last_unit)
         else:
             reward = self._calculate_reward(is_last_unit)
+        
+        # 确保奖励在有效范围内（防止超出范围）
+        reward = np.clip(reward, -1.0, 0.0)
         
         # 获取下一个状态
         next_state = self._get_state()
@@ -1112,7 +1136,7 @@ class LayoutEnvironment:
                 print(f"[仿真指标] 完成产品:{finished_goods:.0f}, 吞吐率:{throughput_rate:.6f}, 工位利用率:{avg_station_util:.4f}")
             else:
                 # 训练时只打印关键指标
-                print(f"[仿真] 距离:{avg_distance:.2f}, 物流:{total_logistics:.0f}, 产品:{finished_goods:.0f}, 利用率:{avg_station_util:.4f}")
+                print(f"✓ [Episode {self.episode_counter + 1}] [仿真完成] 距离:{avg_distance:.2f}, 物流:{total_logistics:.0f}, 产品:{finished_goods:.0f}, 利用率:{avg_station_util:.4f}")
             
             # 计算多目标奖励（归一化到 [-1, 0] 范围）
             # 改进版：使用校准的指标边界 + Tanh非线性映射（增强好动作和坏动作的区分度）

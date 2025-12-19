@@ -272,6 +272,8 @@ interface TrainingProgress {
   total_steps: number;
   current_episode: number;
   best_reward: number | null;
+  current_epsilon: number | null;        // 当前探索率
+  estimated_remaining: number | null;    // 预计剩余时间（秒）
 }
 ```
 
@@ -344,6 +346,8 @@ interface Project {
   total_steps: number;
   current_episode: number;
   best_reward: number | null;
+  current_epsilon: number | null;        // 当前探索率
+  estimated_remaining: number | null;    // 预计剩余时间（秒）
   created_at: string;
   updated_at: string;
 }
@@ -569,30 +573,9 @@ Response:
 }
 ```
 
-#### 暂停训练
+#### ~~暂停训练~~ (已移除)
 ```
-POST /api/training/projects/{project_id}/pause
-
-Response:
-{
-  "code": 0,
-  "data": {
-    "status": "paused"
-  }
-}
-```
-
-#### 恢复训练
-```
-POST /api/training/projects/{project_id}/resume
-
-Response:
-{
-  "code": 0,
-  "data": {
-    "status": "running"
-  }
-}
+该接口已移除，暂停/恢复训练功能不再支持。
 ```
 
 #### 获取训练状态
@@ -881,7 +864,9 @@ Response:
     "total_steps": 50000,
     "current_episode": 50,
     "epsilon": 0.95,
-    "loss": 0.023
+    "loss": 0.023,
+    "estimated_remaining": 3600,
+    "progress_pct": 2.0
   }
 }
 ```
@@ -972,12 +957,18 @@ data/
 │       ├── layout_config.json
 │       ├── constraints.json
 │       ├── training_params.json
-│       └── checkpoints/
-│           ├── model_ep100.pth
-│           ├── model_ep200.pth
-│           ├── model_best.pth
-│           ├── layout_ep100.json
-│           └── metrics_ep100.json
+│       ├── checkpoints/
+│       │   ├── model_ep100.pth
+│       │   ├── model_ep200.pth
+│       │   ├── model_best.pth
+│       │   └── model_final.pth
+│       ├── layouts/              # 布局快照
+│       │   ├── layout_ep100.json
+│       │   ├── layout_ep200.json
+│       │   └── layout_best.json
+│       └── metrics/              # 训练指标CSV
+│           ├── rewards.csv       # episode,step,reward,mean_reward_100,epsilon
+│           └── losses.csv        # step,loss
 └── temp/                  # 临时文件
 ```
 
@@ -1067,8 +1058,6 @@ data/
 | Training | DELETE | `/api/training/projects/{id}` | 删除项目 |
 | Training | POST | `/api/training/projects/{id}/start` | 启动训练 |
 | Training | POST | `/api/training/projects/{id}/stop` | 停止训练 |
-| Training | POST | `/api/training/projects/{id}/pause` | 暂停训练 |
-| Training | POST | `/api/training/projects/{id}/resume` | 恢复训练 |
 | Training | GET | `/api/training/projects/{id}/status` | 获取状态 |
 | Training | GET | `/api/training/projects/{id}/checkpoints` | 检查点列表 |
 | Training | WS | `/api/training/ws/{id}` | 实时进度 |
@@ -1094,3 +1083,4 @@ data/
 |------|------|------|
 | 1.0 | 2024-12-10 | 初始版本 |
 | 1.1 | 2024-12-10 | 更新为实际实现的路由，添加路由汇总表 |
+| 1.2 | 2024-12-19 | 新增 current_epsilon、estimated_remaining 字段；更新文件存储结构；移除暂停/恢复接口 |

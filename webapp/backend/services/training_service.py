@@ -124,6 +124,8 @@ class TrainingService:
             'total_steps': project.total_steps,
             'current_episode': project.current_episode,
             'best_reward': project.best_reward,
+            'current_epsilon': project.current_epsilon,
+            'estimated_remaining': project.estimated_remaining,
         }
     
     def update_progress(
@@ -213,8 +215,26 @@ class TrainingService:
                 json.dump(project.factory_config, f, indent=2)
 
             layout_with_constraints = project.layout_config.copy()
+            # 合并 constraints：优先使用 project.constraints，如果为空则保留 layout_config 中的 constraints
             if project.constraints:
                 layout_with_constraints['constraints'] = project.constraints
+            elif 'constraints' not in layout_with_constraints:
+                # 如果 layout_config 中没有 constraints，创建默认的
+                # 默认所有 obstacles 都是可移动的
+                obstacles = layout_with_constraints.get('obstacles', [])
+                obstacle_ids = [obs.get('id') for obs in obstacles if obs.get('id')]
+                fus = layout_with_constraints.get('fus', [])
+                fu_ids = [fu.get('id') for fu in fus if fu.get('id')]
+                # 默认 dock 类型需要贴墙
+                default_wall_attach = [fid for fid in fu_ids if 'dock' in fid.lower() or 'rec' in fid.lower() or 'ship' in fid.lower()]
+                layout_with_constraints['constraints'] = {
+                    'fixed_obstacles': [],
+                    'movable_obstacles': obstacle_ids,
+                    'default_wall_attach': default_wall_attach,
+                    'fixed_positions': [],
+                    'adjacency': [],
+                    'wall_attach': [],
+                }
             with open(layout_config_path, 'w') as f:
                 json.dump(layout_with_constraints, f, indent=2)
 
@@ -231,13 +251,20 @@ class TrainingService:
             best_so_far = project.best_reward if project.best_reward is not None else float("-inf")
 
             def on_progress(data):
-                crud.update_project(
-                    db_local,
-                    project_id,
-                    current_step=data.get('step'),
-                    current_episode=data.get('episode'),
-                    best_reward=data.get('mean_reward'),
-                )
+                nonlocal best_so_far
+                current_reward = data.get('mean_reward')
+                # 只有当前奖励比历史最佳更好时才更新 best_reward
+                update_kwargs = {
+                    'current_step': data.get('step'),
+                    'current_episode': data.get('episode'),
+                    'current_epsilon': data.get('epsilon'),
+                    'estimated_remaining': data.get('estimated_remaining'),
+                }
+                if current_reward is not None and current_reward > best_so_far:
+                    best_so_far = current_reward
+                    update_kwargs['best_reward'] = current_reward
+                
+                crud.update_project(db_local, project_id, **update_kwargs)
                 try:
                     crud.add_metrics_record(
                         db_local,

@@ -17,7 +17,13 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 30000,
+  timeout: 60000, // 60秒，用于普通API调用
+});
+
+// 校准API需要更长的超时时间（5分钟）
+const calibrationApiClient = axios.create({
+  baseURL: BASE_URL,
+  timeout: 300000, // 5分钟，校准可能需要较长时间
 });
 
 // ========== 配置管理 ==========
@@ -109,6 +115,45 @@ export const trainingApi = {
 
   getStatus: async (projectId: string) => {
     const res = await api.get<ApiResponse<TrainingProgress>>(`/training/projects/${projectId}/status`);
+    return res.data;
+  },
+};
+
+// ========== 校准 ==========
+
+export const calibrationApi = {
+  runCalibration: async (payload: {
+    factory_config: FactoryConfig;
+    layout_config: LayoutConfig;
+    n_episodes?: number;
+    simulation_duration?: number;
+    throughput_target?: number;
+    force_recalibrate?: boolean;
+  }) => {
+    // 使用专门的校准API客户端，超时时间更长
+    const res = await calibrationApiClient.post<ApiResponse<{
+      config_hash: string;
+      bounds: {
+        distance?: { best: number; worst: number };
+        logistics?: { best: number; worst: number };
+        throughput?: { best: number; worst: number };
+        utilization?: { best: number; worst: number };
+      };
+    }>>('/calibration/run', payload);
+    return res.data;
+  },
+
+  getCache: async (config_hash: string) => {
+    const res = await api.get<ApiResponse<{
+      exists: boolean;
+      bounds?: any;
+      created_at?: string;
+    }>>('/calibration/cache', { params: { factory_hash: config_hash } });
+    return res.data;
+  },
+
+  deleteCache: async (config_hash: string) => {
+    const res = await api.delete<ApiResponse<null>>(`/calibration/cache/${config_hash}`);
     return res.data;
   },
 };
