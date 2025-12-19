@@ -151,9 +151,15 @@ interface Obstacle {
 
 ```typescript
 interface Constraints {
-  fixed_positions: FixedPosition[];   // 固定位置（硬约束）
-  adjacency: AdjacencyConstraint[];   // 相邻约束（硬约束）
-  wall_attach: WallAttachConstraint[]; // 贴墙约束（硬约束）
+  // 障碍物分类（简化配置）
+  fixed_obstacles?: string[];        // 固定障碍物ID列表（位置不可变）
+  movable_obstacles?: string[];      // 可移动障碍物ID列表（Agent可放置）
+  default_wall_attach?: string[];    // 默认贴墙的单元ID列表（自动选择最近墙壁）
+  
+  // 详细约束配置
+  fixed_positions?: FixedPosition[];   // 固定位置（硬约束）
+  adjacency?: AdjacencyConstraint[];   // 相邻约束（硬约束）
+  wall_attach?: WallAttachConstraint[]; // 贴墙约束（硬约束，指定具体墙壁）
 }
 
 interface FixedPosition {
@@ -175,10 +181,23 @@ interface WallAttachConstraint {
 }
 ```
 
+**约束字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `fixed_obstacles` | `string[]` | 固定障碍物，位置在 `obstacles` 中定义，不可移动 |
+| `movable_obstacles` | `string[]` | 可移动障碍物，Agent 可放置 |
+| `default_wall_attach` | `string[]` | 简化贴墙配置，只需单元ID，自动选择最近墙壁 |
+| `fixed_positions` | `object[]` | 详细固定位置约束，指定坐标和角度 |
+| `adjacency` | `object[]` | 相邻约束，指定两个单元必须相邻 |
+| `wall_attach` | `object[]` | 详细贴墙约束，指定具体墙壁方向 |
+
 **约束行为说明**：
 
 | 约束类型 | 实现方式 | 不满足时的行为 |
 |----------|----------|----------------|
+| 固定障碍物 | 训练开始前预先放置，Agent不参与 | - |
+| 可移动障碍物 | 作为功能单元参与布局优化 | - |
 | 固定位置 | 训练开始前预先放置，Agent不参与 | - |
 | 相邻约束 | 布局完成后检查 | 奖励=-5，标记为约束违反 |
 | 贴墙约束 | 在有效动作筛选时检查 | 不满足的位置不可选 |
@@ -187,8 +206,11 @@ interface WallAttachConstraint {
 ```json
 {
   "constraints": {
+    "fixed_obstacles": ["cafeteria"],
+    "movable_obstacles": ["obstacle_2", "obstacle_3"],
+    "default_wall_attach": ["rec_dock", "ship_dock"],
     "fixed_positions": [
-      { "unit_id": "rec_dock", "x": 0, "y": 10, "angle": 0 }
+      { "unit_id": "storage", "x": 0, "y": 10, "angle": 0 }
     ],
     "adjacency": [
       { "unit_a": "station_1", "unit_b": "station_2", "direction": "horizontal" }

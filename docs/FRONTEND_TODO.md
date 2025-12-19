@@ -185,17 +185,25 @@ const formatTime = (seconds: number | null) => {
 **约束类型**：
 ```typescript
 interface Constraints {
-  fixed_positions: { unit_id: string; x: number; y: number; angle: number }[];
-  adjacency: { unit_a: string; unit_b: string; direction?: string }[];
-  wall_attach: { unit_id: string; wall: "top" | "bottom" | "left" | "right" }[];
+  // 障碍物分类（简化配置）
+  fixed_obstacles?: string[];        // 固定障碍物ID列表
+  movable_obstacles?: string[];      // 可移动障碍物ID列表
+  default_wall_attach?: string[];    // 默认贴墙的单元ID列表
+  
+  // 详细约束配置
+  fixed_positions?: { unit_id: string; x: number; y: number; angle: number }[];
+  adjacency?: { unit_a: string; unit_b: string; direction?: string }[];
+  wall_attach?: { unit_id: string; wall: "top" | "bottom" | "left" | "right" }[];
 }
 ```
 
 **UI 建议**：
 - 在 `TrainingPage.tsx` 或 `BuilderPage.tsx` 中添加约束配置区域
+- 障碍物分类：从 `obstacles` 列表中勾选固定/可移动
+- 默认贴墙：勾选需要贴墙的单元（自动选择最近墙壁）
 - 固定位置：选择单元 → 输入坐标和角度
 - 相邻约束：选择两个单元 → 选择方向
-- 贴墙约束：选择单元 → 选择墙壁
+- 贴墙约束：选择单元 → 选择具体墙壁（top/bottom/left/right）
 
 ---
 
@@ -282,4 +290,5 @@ data/projects/{project_id}/
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 1.0 | 2024-12-19 | 初始版本 |
+
 
