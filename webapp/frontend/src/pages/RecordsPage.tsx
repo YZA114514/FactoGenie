@@ -21,6 +21,16 @@ const statusColor: Record<string, string> = {
   paused: "orange",
   completed: "blue",
   failed: "volcano",
+  interrupted: "orange",  // 服务器重启等原因导致的中断
+};
+
+const statusText: Record<string, string> = {
+  running: "运行中",
+  stopped: "已停止",
+  paused: "已暂停",
+  completed: "已完成",
+  failed: "失败",
+  interrupted: "已中断",
 };
 
 const RecordsPage = () => {
@@ -68,7 +78,7 @@ const RecordsPage = () => {
       title: "状态",
       dataIndex: "status",
       key: "status",
-      render: (v: string) => <Tag color={statusColor[v] || "default"}>{v || "-"}</Tag>,
+      render: (v: string) => <Tag color={statusColor[v] || "default"}>{statusText[v] || v || "-"}</Tag>,
     },
     { title: "Episode", dataIndex: "current_episode", key: "current_episode" },
     { title: "最佳奖励", dataIndex: "best_reward", key: "best_reward" },

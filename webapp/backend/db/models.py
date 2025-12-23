@@ -34,6 +34,8 @@ class Project(Base):
     current_step = Column(Integer, default=0)
     total_steps = Column(Integer, default=50000)
     current_episode = Column(Integer, default=0)
+    current_epsilon = Column(Float, nullable=True)  # 当前探索率
+    estimated_remaining = Column(Float, nullable=True)  # 预计剩余时间（秒）
     
     # 结果
     best_reward = Column(Float, nullable=True)

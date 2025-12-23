@@ -93,6 +93,14 @@ export interface LayoutConfig {
   };
   fus: FunctionalUnit[];
   obstacles: Obstacle[];
+  constraints?: {
+    fixed_obstacles?: string[];
+    movable_obstacles?: string[];
+    default_wall_attach?: string[];
+    fixed_positions?: FixedPosition[];
+    adjacency?: AdjacencyConstraint[];
+    wall_attach?: WallAttachConstraint[];
+  };
 }
 
 // ========== 约束 ==========

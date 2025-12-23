@@ -13,11 +13,14 @@ import uvicorn
 if __name__ == "__main__":
     uvicorn.run(
         "api.main:app",
-        host="0.0.0.0",
+        host="127.0.0.1",  # 本地开发使用 127.0.0.1，如需从其他设备访问可改为 0.0.0.0
         port=8000,
         reload=True,
         reload_dirs=[str(backend_dir)],
     )
+
+
+
 
 
 

@@ -3,9 +3,12 @@
 """
 from fastapi import APIRouter, Depends
 from typing import Optional
+from pathlib import Path
+import csv
 
-from api.deps import get_result_service
+from api.deps import get_result_service, get_project_service
 from services.result_service import ResultService
+from services.project_service import ProjectService
 
 router = APIRouter()
 
@@ -31,11 +34,14 @@ async def get_best_layout(
     service: ResultService = Depends(get_result_service),
 ):
     """获取最佳布局"""
+    print(f"[INFO] get_best_layout 请求: project_id={project_id}")
     result = service.get_best_layout(project_id)
     
     if not result:
+        print(f"[WARN] 项目 {project_id} 没有找到最佳布局")
         return {"code": 1002, "message": "No best layout found", "data": None}
     
+    print(f"[INFO] 项目 {project_id} 最佳布局: episode={result.get('episode')}, reward={result.get('reward')}")
     return {
         "code": 0,
         "data": result
@@ -73,4 +79,83 @@ async def get_checkpoint_detail(
     return {
         "code": 0,
         "data": result
+    }
+
+
+@router.get("/{project_id}/losses")
+async def get_losses(
+    project_id: str,
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取训练loss曲线数据（从CSV文件读取）"""
+    project_dir = project_service.get_project_dir(project_id)
+    losses_csv = project_dir / "metrics" / "losses.csv"
+    
+    if not losses_csv.exists():
+        return {"code": 0, "data": {"values": [], "message": "Loss file not found"}}
+    
+    values = []
+    try:
+        with open(losses_csv, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    step = int(row.get('step', 0))
+                    loss = float(row.get('loss', 0))
+                    values.append({'step': step, 'loss': loss})
+                except (ValueError, TypeError):
+                    continue
+    except Exception as e:
+        return {"code": 5000, "message": str(e), "data": None}
+    
+    return {
+        "code": 0,
+        "data": {
+            "values": values,
+            "count": len(values),
+        }
+    }
+
+
+@router.get("/{project_id}/rewards-csv")
+async def get_rewards_csv(
+    project_id: str,
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """获取训练reward曲线数据（从CSV文件读取，更详细）"""
+    project_dir = project_service.get_project_dir(project_id)
+    rewards_csv = project_dir / "metrics" / "rewards.csv"
+    
+    if not rewards_csv.exists():
+        return {"code": 0, "data": {"values": [], "message": "Rewards file not found"}}
+    
+    values = []
+    try:
+        with open(rewards_csv, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    episode = int(row.get('episode', 0))
+                    step = int(row.get('step', 0))
+                    reward = float(row.get('reward', 0))
+                    mean_reward = float(row.get('mean_reward_100', 0))
+                    epsilon = float(row.get('epsilon', 0))
+                    values.append({
+                        'episode': episode,
+                        'step': step,
+                        'reward': reward,
+                        'mean_reward': mean_reward,
+                        'epsilon': epsilon,
+                    })
+                except (ValueError, TypeError):
+                    continue
+    except Exception as e:
+        return {"code": 5000, "message": str(e), "data": None}
+    
+    return {
+        "code": 0,
+        "data": {
+            "values": values,
+            "count": len(values),
+        }
     }

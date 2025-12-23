@@ -41,6 +41,34 @@ class OptimizationService:
             'utilization': weights.get('utilization', 0.05),
         }
         
+        # 校准指标边界（如果需要）
+        metric_bounds = None
+        calibrate_episodes = training_params.get('calibrate_episodes', 0)
+        throughput_target = training_params.get('throughput_target', None)
+        
+        if calibrate_episodes > 0:
+            print(f"\n{'='*50}")
+            print(f"开始校准指标边界 ({calibrate_episodes} 个随机布局)...")
+            print(f"{'='*50}")
+            
+            from calibration.bounds import BoundsManager
+            bounds_manager = BoundsManager()
+            
+            bounds = bounds_manager.load_or_calibrate(
+                factory_config_path=factory_config_path,
+                layout_config_path=layout_config_path,
+                n_episodes=calibrate_episodes,
+                simulation_duration=training_params.get('simulation_duration', 2000),
+                throughput_target=throughput_target,
+            )
+            
+            # 提取边界用于环境
+            metric_bounds = bounds_manager.get_bounds_for_reward(
+                factory_config_path=factory_config_path,
+                layout_config_path=layout_config_path,
+            )
+            print(f"\n使用校准边界: {metric_bounds}")
+        
         self._env = FactoryEnv(
             config_path=factory_config_path,
             use_simulation=training_params.get('use_simulation', True),
@@ -48,6 +76,7 @@ class OptimizationService:
             objective_weights=objective_weights,
             placement_order=training_params.get('placement_order', 'default'),
             layout_path=layout_config_path,
+            metric_bounds=metric_bounds,  # 传递校准的边界
         )
         
         return self._env
@@ -56,7 +85,7 @@ class OptimizationService:
         self,
         training_params: Dict,
         progress_callback: Callable[[Dict], None] = None,
-        checkpoint_callback: Callable[[int, float, str], None] = None,
+        checkpoint_callback: Callable[[int, float, str, str], None] = None,  # (episode, reward, model_path, layout_path)
     ) -> Dict:
         """
         运行训练
@@ -115,13 +144,37 @@ class OptimizationService:
         sync_target = training_params.get('sync_target_every', 2000)
         replay_start = training_params.get('replay_start_size', 5000)
         batch_size = training_params.get('batch_size', 32)
-        checkpoint_interval = training_params.get('checkpoint_interval', 1000)
+        checkpoint_interval = training_params.get('checkpoint_interval', 100)
+        
+        # 初始化 CSV 文件用于保存训练指标
+        import csv
+        import time
+        metrics_dir = self.project_dir / "metrics"
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        
+        rewards_csv = metrics_dir / "rewards.csv"
+        losses_csv = metrics_dir / "losses.csv"
+        
+        # 写入 CSV 头
+        with open(rewards_csv, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['episode', 'step', 'reward', 'mean_reward_100', 'epsilon'])
+        
+        with open(losses_csv, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['step', 'loss'])
+        
+        # 布局快照目录
+        layouts_dir = self.project_dir / "layouts"
+        layouts_dir.mkdir(parents=True, exist_ok=True)
         
         # 训练循环
         epsilon = epsilon_start
         total_rewards = []
+        total_losses = []
         best_reward = -float('inf')
         episode_count = 0
+        start_time = time.time()
         
         for frame_idx in range(1, total_steps + 1):
             # 检查停止信号
@@ -144,7 +197,18 @@ class OptimizationService:
                 episode_count += 1
                 mean_reward = np.mean(total_rewards[-100:])
                 
-                # 进度回调
+                # 计算预计剩余时间
+                elapsed = time.time() - start_time
+                steps_per_sec = frame_idx / elapsed if elapsed > 0 else 0
+                remaining_steps = total_steps - frame_idx
+                estimated_remaining = remaining_steps / steps_per_sec if steps_per_sec > 0 else 0
+                
+                # 保存到 rewards.csv
+                with open(rewards_csv, 'a', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([episode_count, frame_idx, reward, mean_reward, epsilon])
+                
+                # 进度回调（包含预计剩余时间和探索率）
                 if progress_callback:
                     progress_callback({
                         'step': frame_idx,
@@ -152,6 +216,8 @@ class OptimizationService:
                         'reward': reward,
                         'mean_reward': mean_reward,
                         'epsilon': epsilon,
+                        'estimated_remaining': estimated_remaining,
+                        'progress_pct': frame_idx / total_steps * 100,
                     })
                 
                 # 检查点保存
@@ -166,12 +232,24 @@ class OptimizationService:
                         'reward': reward,
                     }, model_path)
                     
+                    # 保存布局快照（从 agent 获取 episode 结束时保存的快照）
+                    layout_path_str = None
+                    try:
+                        layout_snapshot = getattr(agent, 'last_layout_snapshot', None)
+                        if layout_snapshot:
+                            layout_path = layouts_dir / f"layout_ep{episode_count}.json"
+                            with open(layout_path, 'w', encoding='utf-8') as f:
+                                json.dump(layout_snapshot, f, indent=2, ensure_ascii=False)
+                            layout_path_str = str(layout_path)
+                    except Exception as e:
+                        print(f"保存布局快照失败: {e}")
+                    
                     if checkpoint_callback:
-                        checkpoint_callback(episode_count, reward, str(model_path))
+                        checkpoint_callback(episode_count, reward, str(model_path), layout_path_str or "")
                 
-                # 最佳模型
-                if mean_reward > best_reward:
-                    best_reward = mean_reward
+                # 最佳模型和布局（使用单个episode的reward，而不是mean_reward）
+                if reward > best_reward:
+                    best_reward = reward
                     best_path = self.project_dir / "checkpoints" / "model_best.pth"
                     best_path.parent.mkdir(parents=True, exist_ok=True)
                     torch.save({
@@ -179,6 +257,16 @@ class OptimizationService:
                         'model_state_dict': net.state_dict(),
                         'reward': reward,
                     }, best_path)
+                    
+                    # 保存最佳布局快照（从 agent 获取）
+                    try:
+                        layout_snapshot = getattr(agent, 'last_layout_snapshot', None)
+                        if layout_snapshot:
+                            best_layout_path = layouts_dir / "layout_best.json"
+                            with open(best_layout_path, 'w', encoding='utf-8') as f:
+                                json.dump(layout_snapshot, f, indent=2, ensure_ascii=False)
+                    except Exception as e:
+                        print(f"保存最佳布局快照失败: {e}")
             
             # 训练
             if len(buffer) >= replay_start:
@@ -195,6 +283,14 @@ class OptimizationService:
                 
                 loss_v.backward()
                 optimizer.step()
+                
+                # 保存损失值到 losses.csv（每100步保存一次减少IO）
+                loss_val = loss_v.item()
+                total_losses.append(loss_val)
+                if frame_idx % 100 == 0:
+                    with open(losses_csv, 'a', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([frame_idx, loss_val])
                 
                 if use_prior:
                     buffer.update_priorities(batch_indices, sample_prios)
@@ -221,6 +317,30 @@ class OptimizationService:
             np.array(dones, dtype=bool),
             np.array(next_states, copy=False),
         )
+    
+    def _get_layout_snapshot(self) -> Optional[Dict]:
+        """获取当前布局快照"""
+        if self._env is None:
+            return None
+        
+        try:
+            # 获取底层环境
+            env = self._env
+            while hasattr(env, 'env'):
+                env = env.env
+            
+            # 获取布局模板和已放置单元
+            if hasattr(env, 'layout_template') and hasattr(env, 'placed_units'):
+                from environment.layout_exporter import LayoutExporter
+                exporter = LayoutExporter(env.layout_template, None)
+                return exporter.export_layout_dict(
+                    env.placed_units,
+                    env.functional_units
+                )
+        except Exception as e:
+            print(f"获取布局快照失败: {e}")
+        
+        return None
     
     def stop(self):
         """停止训练"""
@@ -291,6 +411,9 @@ def evaluate_layout(layout_path: str, factory_config_path: str, duration: float 
         'space_utilization': results.get('space_utilization', 0),
         'station_utilization': results.get('station_utilization', {}),
     }
+
+
+
 
 
 

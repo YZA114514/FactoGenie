@@ -25,6 +25,25 @@ class Agent:
         self.total_reward = 0.0
         self._episode_transitions = []
 
+    def _capture_layout_snapshot(self):
+        """在 episode 结束时捕获布局快照（reset 之前调用）"""
+        try:
+            # 获取底层环境
+            env = self.env
+            while hasattr(env, 'env'):
+                env = env.env
+            
+            if hasattr(env, 'layout_template') and hasattr(env, 'placed_units'):
+                from environment.layout_exporter import LayoutExporter
+                exporter = LayoutExporter(env.layout_template, None)
+                return exporter.export_layout_dict(
+                    env.placed_units,
+                    env.functional_units
+                )
+        except Exception as e:
+            print(f"捕获布局快照失败: {e}")
+        return None
+
     @torch.no_grad()
     def play_step(self, net, epsilon=0.0, device="cpu"):
         done_reward = None
@@ -37,6 +56,8 @@ class Agent:
         if is_done:
             rewards = self._resolve_episode_rewards(reward_payload, info)
             done_reward = self._commit_episode(rewards)
+            # 在 reset 之前保存布局快照
+            self.last_layout_snapshot = self._capture_layout_snapshot()
             self._reset_episode()
 
         return done_reward
@@ -195,7 +216,7 @@ def get_q_values_for_state(net, state, device="cpu"):
     return q_vals
 
 
-def get_q_values_heatmap(net, env, state, device="cpu"):
+def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
     """
     获取当前状态的 Q 值热力图数据
     
@@ -204,6 +225,7 @@ def get_q_values_heatmap(net, env, state, device="cpu"):
         env: 环境实例
         state: 当前状态
         device: 计算设备
+        actual_action: 实际执行的动作索引（可选，如果提供则显示实际动作而不是最佳动作）
         
     Returns:
         热力图数据字典
@@ -237,12 +259,24 @@ def get_q_values_heatmap(net, env, state, device="cpu"):
         if rotation < num_rotations and y < ny and x < nx:
             q_values_3d[rotation, y, x] = q_val
     
-    # 找到最佳动作
-    best_action_idx = int(np.argmax(q_values))
-    best_rotation = best_action_idx // (nx * ny)
-    remaining = best_action_idx % (nx * ny)
-    best_y = remaining // nx
-    best_x = remaining % nx
+    # 确定要显示的动作：如果提供了实际动作，使用它；否则使用Q值最大的动作
+    if actual_action is not None and 0 <= actual_action < len(q_values):
+        display_action_idx = actual_action
+    else:
+        # 在有效动作中选择Q值最大的
+        if valid_actions:
+            valid_q = [(a, q_values[a]) for a in valid_actions if 0 <= a < len(q_values)]
+            if valid_q:
+                display_action_idx = max(valid_q, key=lambda x: x[1])[0]
+            else:
+                display_action_idx = int(np.argmax(q_values))
+        else:
+            display_action_idx = int(np.argmax(q_values))
+    
+    display_rotation = display_action_idx // (nx * ny)
+    remaining = display_action_idx % (nx * ny)
+    display_y = remaining // nx
+    display_x = remaining % nx
     
     return {
         'grid_width': nx,
@@ -252,10 +286,10 @@ def get_q_values_heatmap(net, env, state, device="cpu"):
         'q_values_flat': q_values.tolist(),
         'valid_actions': valid_actions,
         'selected_action': {
-            'x': best_x,
-            'y': best_y,
-            'angle': best_rotation * 90,
-            'q_value': float(q_values[best_action_idx]),
+            'x': display_x,
+            'y': display_y,
+            'angle': display_rotation * 90,
+            'q_value': float(q_values[display_action_idx]),
         },
         'q_min': float(np.min(q_values[q_values > -np.inf])) if np.any(q_values > -np.inf) else 0,
         'q_max': float(np.max(q_values)),

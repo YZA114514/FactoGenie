@@ -19,10 +19,35 @@ class TrainingService:
     # 存储运行中的任务
     _running_tasks: Dict[str, dict] = {}
     _stop_events: Dict[str, threading.Event] = {}
+    _cleanup_done: bool = False  # 是否已清理孤立任务
     
     def __init__(self, db: Session):
         self.db = db
         self.data_dir = Path(__file__).parent.parent.parent.parent / "data"
+    
+    @classmethod
+    def is_task_actually_running(cls, project_id: str) -> bool:
+        """检查项目是否真的在运行（不是孤立的running状态）"""
+        return project_id in cls._running_tasks
+    
+    def cleanup_orphan_running_projects(self):
+        """清理孤立的running状态项目（服务器重启后执行一次）"""
+        if TrainingService._cleanup_done:
+            return
+        
+        try:
+            # 获取所有running状态的项目
+            running_projects = crud.get_projects_by_status(self.db, 'running')
+            
+            for project in running_projects:
+                # 如果项目不在活动任务列表中，更新为interrupted状态
+                if not TrainingService.is_task_actually_running(project.id):
+                    crud.update_project(self.db, project.id, status='interrupted')
+                    print(f"[清理] 项目 {project.id} ({project.name}) 状态从 running 更新为 interrupted")
+            
+            TrainingService._cleanup_done = True
+        except Exception as e:
+            print(f"[清理] 清理孤立任务时出错: {e}")
     
     def start_training(self, project_id: str, use_celery: bool = True) -> Dict:
         """
@@ -84,26 +109,33 @@ class TrainingService:
         if project.status != 'running':
             return {'success': False, 'error': 'Training not running'}
         
-        # 设置停止标志
+        # 先更新状态，让前端立即看到变化
+        crud.update_project(self.db, project_id, status='stopped')
+        
+        # 设置停止标志（本地线程模式会检测到这个信号）
         if project_id in self._stop_events:
             self._stop_events[project_id].set()
         
-        # 尝试发送停止信号到Celery任务（如果可用）
-        try:
-            from workers.tasks import stop_training_task
-            stop_training_task.delay(project_id)
-        except Exception as e:
-            print(f"Warning: Failed to send stop signal: {e}")
-        
-        # 取消Celery任务（如果有）
-        if hasattr(project, 'celery_task_id') and project.celery_task_id:
+        # 异步处理Celery相关操作（避免阻塞响应）
+        def async_stop():
+            # 尝试发送停止信号到Celery任务（如果可用）
             try:
-                from workers.celery_app import celery_app
-                celery_app.control.revoke(project.celery_task_id, terminate=True)
+                from workers.tasks import stop_training_task
+                stop_training_task.delay(project_id)
             except Exception as e:
-                print(f"Warning: Failed to revoke Celery task: {e}")
+                print(f"Warning: Failed to send stop signal: {e}")
+            
+            # 取消Celery任务（如果有）
+            if hasattr(project, 'celery_task_id') and project.celery_task_id:
+                try:
+                    from workers.celery_app import celery_app
+                    celery_app.control.revoke(project.celery_task_id, terminate=True)
+                except Exception as e:
+                    print(f"Warning: Failed to revoke Celery task: {e}")
         
-        crud.update_project(self.db, project_id, status='stopped')
+        # 在后台线程中执行Celery操作
+        import threading
+        threading.Thread(target=async_stop, daemon=True).start()
         
         return {
             'success': True,
@@ -124,6 +156,8 @@ class TrainingService:
             'total_steps': project.total_steps,
             'current_episode': project.current_episode,
             'best_reward': project.best_reward,
+            'current_epsilon': project.current_epsilon,
+            'estimated_remaining': project.estimated_remaining,
         }
     
     def update_progress(
@@ -213,8 +247,26 @@ class TrainingService:
                 json.dump(project.factory_config, f, indent=2)
 
             layout_with_constraints = project.layout_config.copy()
+            # 合并 constraints：优先使用 project.constraints，如果为空则保留 layout_config 中的 constraints
             if project.constraints:
                 layout_with_constraints['constraints'] = project.constraints
+            elif 'constraints' not in layout_with_constraints:
+                # 如果 layout_config 中没有 constraints，创建默认的
+                # 默认所有 obstacles 都是可移动的
+                obstacles = layout_with_constraints.get('obstacles', [])
+                obstacle_ids = [obs.get('id') for obs in obstacles if obs.get('id')]
+                fus = layout_with_constraints.get('fus', [])
+                fu_ids = [fu.get('id') for fu in fus if fu.get('id')]
+                # 默认 dock 类型需要贴墙
+                default_wall_attach = [fid for fid in fu_ids if 'dock' in fid.lower() or 'rec' in fid.lower() or 'ship' in fid.lower()]
+                layout_with_constraints['constraints'] = {
+                    'fixed_obstacles': [],
+                    'movable_obstacles': obstacle_ids,
+                    'default_wall_attach': default_wall_attach,
+                    'fixed_positions': [],
+                    'adjacency': [],
+                    'wall_attach': [],
+                }
             with open(layout_config_path, 'w') as f:
                 json.dump(layout_with_constraints, f, indent=2)
 
@@ -231,13 +283,21 @@ class TrainingService:
             best_so_far = project.best_reward if project.best_reward is not None else float("-inf")
 
             def on_progress(data):
-                crud.update_project(
-                    db_local,
-                    project_id,
-                    current_step=data.get('step'),
-                    current_episode=data.get('episode'),
-                    best_reward=data.get('mean_reward'),
-                )
+                nonlocal best_so_far
+                # 使用单个episode的reward来更新最佳奖励，而不是mean_reward（平均奖励）
+                current_reward = data.get('reward')
+                # 只有当前奖励比历史最佳更好时才更新 best_reward
+                update_kwargs = {
+                    'current_step': data.get('step'),
+                    'current_episode': data.get('episode'),
+                    'current_epsilon': data.get('epsilon'),
+                    'estimated_remaining': data.get('estimated_remaining'),
+                }
+                if current_reward is not None and current_reward > best_so_far:
+                    best_so_far = current_reward
+                    update_kwargs['best_reward'] = current_reward
+                
+                crud.update_project(db_local, project_id, **update_kwargs)
                 try:
                     crud.add_metrics_record(
                         db_local,
@@ -252,16 +312,18 @@ class TrainingService:
                     pass
 
             # 回调：检查点
-            def on_checkpoint(ep, reward, model_path):
+            def on_checkpoint(ep, reward, model_path, layout_path):
                 nonlocal best_so_far
                 is_best = reward > (best_so_far if best_so_far is not None else float("-inf"))
+                # 使用传递的布局快照路径，如果为空则使用原始配置路径作为fallback
+                final_layout_path = layout_path if layout_path else str(layout_config_path)
                 crud.create_checkpoint(
                     db_local,
                     project_id,
                     episode=ep,
                     reward=reward,
                     model_path=model_path,
-                    layout_path=str(layout_config_path),
+                    layout_path=final_layout_path,
                     is_best=is_best,
                 )
                 if is_best:

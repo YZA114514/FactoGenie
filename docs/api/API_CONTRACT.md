@@ -151,9 +151,15 @@ interface Obstacle {
 
 ```typescript
 interface Constraints {
-  fixed_positions: FixedPosition[];   // 固定位置（硬约束）
-  adjacency: AdjacencyConstraint[];   // 相邻约束（硬约束）
-  wall_attach: WallAttachConstraint[]; // 贴墙约束（硬约束）
+  // 障碍物分类（简化配置）
+  fixed_obstacles?: string[];        // 固定障碍物ID列表（位置不可变）
+  movable_obstacles?: string[];      // 可移动障碍物ID列表（Agent可放置）
+  default_wall_attach?: string[];    // 默认贴墙的单元ID列表（自动选择最近墙壁）
+  
+  // 详细约束配置
+  fixed_positions?: FixedPosition[];   // 固定位置（硬约束）
+  adjacency?: AdjacencyConstraint[];   // 相邻约束（硬约束）
+  wall_attach?: WallAttachConstraint[]; // 贴墙约束（硬约束，指定具体墙壁）
 }
 
 interface FixedPosition {
@@ -175,10 +181,23 @@ interface WallAttachConstraint {
 }
 ```
 
+**约束字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `fixed_obstacles` | `string[]` | 固定障碍物，位置在 `obstacles` 中定义，不可移动 |
+| `movable_obstacles` | `string[]` | 可移动障碍物，Agent 可放置 |
+| `default_wall_attach` | `string[]` | 简化贴墙配置，只需单元ID，自动选择最近墙壁 |
+| `fixed_positions` | `object[]` | 详细固定位置约束，指定坐标和角度 |
+| `adjacency` | `object[]` | 相邻约束，指定两个单元必须相邻 |
+| `wall_attach` | `object[]` | 详细贴墙约束，指定具体墙壁方向 |
+
 **约束行为说明**：
 
 | 约束类型 | 实现方式 | 不满足时的行为 |
 |----------|----------|----------------|
+| 固定障碍物 | 训练开始前预先放置，Agent不参与 | - |
+| 可移动障碍物 | 作为功能单元参与布局优化 | - |
 | 固定位置 | 训练开始前预先放置，Agent不参与 | - |
 | 相邻约束 | 布局完成后检查 | 奖励=-5，标记为约束违反 |
 | 贴墙约束 | 在有效动作筛选时检查 | 不满足的位置不可选 |
@@ -187,8 +206,11 @@ interface WallAttachConstraint {
 ```json
 {
   "constraints": {
+    "fixed_obstacles": ["cafeteria"],
+    "movable_obstacles": ["obstacle_2", "obstacle_3"],
+    "default_wall_attach": ["rec_dock", "ship_dock"],
     "fixed_positions": [
-      { "unit_id": "rec_dock", "x": 0, "y": 10, "angle": 0 }
+      { "unit_id": "storage", "x": 0, "y": 10, "angle": 0 }
     ],
     "adjacency": [
       { "unit_a": "station_1", "unit_b": "station_2", "direction": "horizontal" }
@@ -272,6 +294,8 @@ interface TrainingProgress {
   total_steps: number;
   current_episode: number;
   best_reward: number | null;
+  current_epsilon: number | null;        // 当前探索率
+  estimated_remaining: number | null;    // 预计剩余时间（秒）
 }
 ```
 
@@ -344,6 +368,8 @@ interface Project {
   total_steps: number;
   current_episode: number;
   best_reward: number | null;
+  current_epsilon: number | null;        // 当前探索率
+  estimated_remaining: number | null;    // 预计剩余时间（秒）
   created_at: string;
   updated_at: string;
 }
@@ -569,30 +595,9 @@ Response:
 }
 ```
 
-#### 暂停训练
+#### ~~暂停训练~~ (已移除)
 ```
-POST /api/training/projects/{project_id}/pause
-
-Response:
-{
-  "code": 0,
-  "data": {
-    "status": "paused"
-  }
-}
-```
-
-#### 恢复训练
-```
-POST /api/training/projects/{project_id}/resume
-
-Response:
-{
-  "code": 0,
-  "data": {
-    "status": "running"
-  }
-}
+该接口已移除，暂停/恢复训练功能不再支持。
 ```
 
 #### 获取训练状态
@@ -881,7 +886,9 @@ Response:
     "total_steps": 50000,
     "current_episode": 50,
     "epsilon": 0.95,
-    "loss": 0.023
+    "loss": 0.023,
+    "estimated_remaining": 3600,
+    "progress_pct": 2.0
   }
 }
 ```
@@ -972,12 +979,18 @@ data/
 │       ├── layout_config.json
 │       ├── constraints.json
 │       ├── training_params.json
-│       └── checkpoints/
-│           ├── model_ep100.pth
-│           ├── model_ep200.pth
-│           ├── model_best.pth
-│           ├── layout_ep100.json
-│           └── metrics_ep100.json
+│       ├── checkpoints/
+│       │   ├── model_ep100.pth
+│       │   ├── model_ep200.pth
+│       │   ├── model_best.pth
+│       │   └── model_final.pth
+│       ├── layouts/              # 布局快照
+│       │   ├── layout_ep100.json
+│       │   ├── layout_ep200.json
+│       │   └── layout_best.json
+│       └── metrics/              # 训练指标CSV
+│           ├── rewards.csv       # episode,step,reward,mean_reward_100,epsilon
+│           └── losses.csv        # step,loss
 └── temp/                  # 临时文件
 ```
 
@@ -1067,8 +1080,6 @@ data/
 | Training | DELETE | `/api/training/projects/{id}` | 删除项目 |
 | Training | POST | `/api/training/projects/{id}/start` | 启动训练 |
 | Training | POST | `/api/training/projects/{id}/stop` | 停止训练 |
-| Training | POST | `/api/training/projects/{id}/pause` | 暂停训练 |
-| Training | POST | `/api/training/projects/{id}/resume` | 恢复训练 |
 | Training | GET | `/api/training/projects/{id}/status` | 获取状态 |
 | Training | GET | `/api/training/projects/{id}/checkpoints` | 检查点列表 |
 | Training | WS | `/api/training/ws/{id}` | 实时进度 |
@@ -1094,3 +1105,4 @@ data/
 |------|------|------|
 | 1.0 | 2024-12-10 | 初始版本 |
 | 1.1 | 2024-12-10 | 更新为实际实现的路由，添加路由汇总表 |
+| 1.2 | 2024-12-19 | 新增 current_epsilon、estimated_remaining 字段；更新文件存储结构；移除暂停/恢复接口 |

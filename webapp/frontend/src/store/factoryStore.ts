@@ -22,12 +22,25 @@ interface TrainingStatus {
   total_steps?: number;
 }
 
+interface ConstraintsConfig {
+  fixed_obstacles: string[];  // 固定障碍物ID列表（不参与摆放）
+  movable_obstacles: string[];  // 可移动障碍物ID列表
+  default_wall_attach: string[];  // 默认贴墙单元ID列表
+  fixed_positions: Array<{ unit_id: string; x: number; y: number; angle: number }>;
+  adjacency: Array<{ unit_a: string; unit_b: string; direction: string }>;
+  wall_attach: Array<{ unit_id: string; wall: string }>;
+}
+
 interface FactoryStoreState extends FactoryStateSnapshot {
   // 训练相关状态
   currentProjectId: string | null;
   trainingStatus: TrainingStatus | null;
   setCurrentProjectId: (id: string | null) => void;
   setTrainingStatus: (status: TrainingStatus | null) => void;
+  
+  // 约束配置
+  constraints: ConstraintsConfig;
+  setConstraints: (constraints: ConstraintsConfig) => void;
 
   addMaterial: (material: Material) => void;
   removeMaterial: (id: MaterialId) => void;
@@ -102,9 +115,18 @@ export const useFactoryStore = create<FactoryStoreState>((set) => ({
   ...initialState,
   currentProjectId: null,
   trainingStatus: null,
+  constraints: {
+    fixed_obstacles: [],
+    movable_obstacles: [],
+    default_wall_attach: [],
+    fixed_positions: [],
+    adjacency: [],
+    wall_attach: [],
+  },
 
   setCurrentProjectId: (id) => set({ currentProjectId: id }),
   setTrainingStatus: (status) => set({ trainingStatus: status }),
+  setConstraints: (constraints) => set({ constraints }),
 
   setSnapshot: (snapshot) =>
     set(() => ({

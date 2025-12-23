@@ -322,7 +322,7 @@ def run_training_with_core(self, project_id: str):
             placement_order=training_params.get('placement_order', 'default'),
             calibrate_episodes=training_params.get('calibrate_episodes', 0),
             throughput_target=training_params.get('throughput_target', None),
-            checkpoint_interval=training_params.get('checkpoint_interval', 1000),
+            checkpoint_interval=training_params.get('checkpoint_interval', 100),
             factory_config=str(factory_config_path),
         )
         

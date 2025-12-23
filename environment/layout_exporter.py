@@ -8,7 +8,7 @@
 import json
 import copy
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import numpy as np
 
 
@@ -17,16 +17,16 @@ class LayoutExporter:
     将环境的布局状态转换为仿真系统所需的 JSON 格式
     """
     
-    def __init__(self, layout_template: Dict, output_path: str):
+    def __init__(self, layout_template: Dict, output_path: Optional[str] = None):
         """
         初始化布局输出器
         
         Args:
             layout_template: 原始布局配置模板（从 config_loader 获取）
-            output_path: 输出文件路径 (如 simulation/layouts/chair_layout.json)
+            output_path: 输出文件路径 (如 simulation/layouts/chair_layout.json)，如果为None则只支持字典导出
         """
         self.layout_template = layout_template
-        self.output_path = Path(output_path)
+        self.output_path = Path(output_path) if output_path is not None else None
     
     def export_layout(
         self, 
@@ -92,6 +92,10 @@ class LayoutExporter:
         
         new_layout['fus'] = fus_list
         new_layout['obstacles'] = obstacles_list
+        
+        # export_layout 需要 output_path
+        if self.output_path is None:
+            raise ValueError("export_layout() requires output_path to be set. Use export_layout_dict() if you only need the dictionary.")
         
         # 确保输出目录存在
         self.output_path.parent.mkdir(parents=True, exist_ok=True)

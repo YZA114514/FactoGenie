@@ -108,8 +108,121 @@ def compute_metrics(
     return {"summary": summary}
 
 
+def get_inventory_chart_data(
+    config_path: Path | str,
+    duration: float,
+    layout_path: Optional[Path | str] = None,
+) -> Dict[str, object]:
+    """
+    运行仿真并获取物料量变化图表数据
+    
+    Args:
+        config_path: 工厂配置文件路径
+        duration: 仿真时长
+        layout_path: 布局文件路径（可选）
+        
+    Returns:
+        包含时间序列数据的字典，格式：
+        {
+            "series": [
+                {
+                    "name": "station_1:leg_assy",
+                    "data": [[time1, level1], [time2, level2], ...]
+                },
+                ...
+            ],
+            "monitors": [["station_1", "leg_assy"], ...],
+            "duration": 2000.0
+        }
+    """
+    config_path = Path(config_path)
+    layout = Path(layout_path) if layout_path is not None else None
+    config_data, resolved_layout, _ = _prepare_configuration(config_path, layout)
+    
+    # 获取监控列表
+    monitors = _derive_monitors(config_data)
+    if not monitors:
+        return {"series": [], "monitors": [], "duration": duration}
+    
+    # 运行仿真
+    sim = build_model(config=config_data)
+    sim.run(until=duration)
+    
+    # 收集物料量变化数据
+    series_data = _collect_inventory_series(sim.events, monitors)
+    
+    return {
+        "series": series_data,
+        "monitors": [[node, material] for node, material in monitors],
+        "duration": duration,
+    }
+
+
+def _derive_monitors(config_data: Dict) -> List[Tuple[str, str]]:
+    """从配置中提取需要监控的节点和物料"""
+    # 如果有明确的 monitor 配置且不为空，则使用它
+    if config_data.get("monitor"):  # 检查非空
+        monitors = []
+        for item in config_data["monitor"]:
+            node = item.get("node")
+            material = item.get("material")
+            if node and material:
+                if isinstance(material, list):
+                    for mat in material:
+                        monitors.append((node, mat))
+                else:
+                    monitors.append((node, material))
+        if monitors:  # 如果解析出了监控点，返回
+            return monitors
+    
+    # 否则从 assemblies 和 summary 自动推导
+    monitors = []
+    for assembly in config_data.get("assemblies", []):
+        node = assembly.get("station")
+        material = assembly.get("output")
+        if node and material:
+            monitors.append((node, material))
+    
+    summary = config_data.get("summary", {})
+    node = summary.get("finished_node")
+    material = summary.get("finished_material")
+    if isinstance(material, list):
+        material = material[0] if material else None
+    if node and material:
+        monitors.append((node, material))
+    
+    return monitors
+
+
+def _collect_inventory_series(events: List[Dict], monitors: List[Tuple[str, str]]) -> List[Dict]:
+    """收集物料量变化的时间序列数据"""
+    series = {key: [] for key in monitors}
+    
+    for record in events:
+        if record.get("event") in {"inventory_put", "inventory_get"}:
+            node = record.get("node")
+            material = record.get("material")
+            key = (node, material)
+            if key in series:
+                time = record.get("time", 0)
+                level = record.get("level", 0)
+                series[key].append([time, level])
+    
+    # 转换为前端需要的格式
+    result = []
+    for (node, material), data in series.items():
+        if data:  # 只返回有数据的序列
+            result.append({
+                "name": f"{node}:{material}",
+                "data": data,
+            })
+    
+    return result
+
+
 __all__ = [
     "SimulationResult",
     "run_simulation",
     "compute_metrics",
+    "get_inventory_chart_data",
 ]
