@@ -85,7 +85,7 @@ class OptimizationService:
         self,
         training_params: Dict,
         progress_callback: Callable[[Dict], None] = None,
-        checkpoint_callback: Callable[[int, float, str], None] = None,
+        checkpoint_callback: Callable[[int, float, str, str], None] = None,  # (episode, reward, model_path, layout_path)
     ) -> Dict:
         """
         运行训练
@@ -144,7 +144,7 @@ class OptimizationService:
         sync_target = training_params.get('sync_target_every', 2000)
         replay_start = training_params.get('replay_start_size', 5000)
         batch_size = training_params.get('batch_size', 32)
-        checkpoint_interval = training_params.get('checkpoint_interval', 1000)
+        checkpoint_interval = training_params.get('checkpoint_interval', 100)
         
         # 初始化 CSV 文件用于保存训练指标
         import csv
@@ -232,22 +232,24 @@ class OptimizationService:
                         'reward': reward,
                     }, model_path)
                     
-                    # 保存布局快照
+                    # 保存布局快照（从 agent 获取 episode 结束时保存的快照）
+                    layout_path_str = None
                     try:
-                        layout_snapshot = self._get_layout_snapshot()
+                        layout_snapshot = getattr(agent, 'last_layout_snapshot', None)
                         if layout_snapshot:
                             layout_path = layouts_dir / f"layout_ep{episode_count}.json"
                             with open(layout_path, 'w', encoding='utf-8') as f:
                                 json.dump(layout_snapshot, f, indent=2, ensure_ascii=False)
+                            layout_path_str = str(layout_path)
                     except Exception as e:
                         print(f"保存布局快照失败: {e}")
                     
                     if checkpoint_callback:
-                        checkpoint_callback(episode_count, reward, str(model_path))
+                        checkpoint_callback(episode_count, reward, str(model_path), layout_path_str or "")
                 
-                # 最佳模型和布局
-                if mean_reward > best_reward:
-                    best_reward = mean_reward
+                # 最佳模型和布局（使用单个episode的reward，而不是mean_reward）
+                if reward > best_reward:
+                    best_reward = reward
                     best_path = self.project_dir / "checkpoints" / "model_best.pth"
                     best_path.parent.mkdir(parents=True, exist_ok=True)
                     torch.save({
@@ -256,9 +258,9 @@ class OptimizationService:
                         'reward': reward,
                     }, best_path)
                     
-                    # 保存最佳布局快照
+                    # 保存最佳布局快照（从 agent 获取）
                     try:
-                        layout_snapshot = self._get_layout_snapshot()
+                        layout_snapshot = getattr(agent, 'last_layout_snapshot', None)
                         if layout_snapshot:
                             best_layout_path = layouts_dir / "layout_best.json"
                             with open(best_layout_path, 'w', encoding='utf-8') as f:

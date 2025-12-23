@@ -22,6 +22,8 @@ class ReplayService:
         self._net = None
         self._current_step = 0
         self._placement_history = []
+        self._state_history = []  # 保存历史状态以便回退
+        self._initial_state = None  # 保存初始状态
     
     def load_checkpoint(
         self,
@@ -77,6 +79,10 @@ class ReplayService:
             self._env.reset()
             self._current_step = 0
             self._placement_history = []
+            self._state_history = []
+            # 保存初始状态
+            self._initial_state = self._get_env_state_snapshot()
+            self._state_history.append(self._initial_state)
             
             return True
             
@@ -85,10 +91,25 @@ class ReplayService:
             return False
     
     def get_total_steps(self) -> int:
-        """获取总步数（功能单元数量）"""
+        """
+        获取总步数（功能单元数量，排除固定位置的单元）
+        
+        注意：
+        - fixed_obstacles 不会出现在 functional_units 中，所以不需要排除
+        - fixed_positions 中的单元会出现在 functional_units 中，但会在 reset 时自动放置，需要排除
+        """
         if self._env is None:
             return 0
-        return getattr(self._env.env, 'num_units', 0)
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        num_units = getattr(env, 'num_units', 0)
+        # 排除固定位置的单元（这些单元会在 reset 时自动放置，不参与 Agent 决策）
+        fixed_position_map = getattr(env, '_fixed_position_map', {})
+        if fixed_position_map:
+            functional_units = getattr(env, 'functional_units', [])
+            fixed_count = sum(1 for u in functional_units 
+                            if u.get('id') in fixed_position_map or u.get('name') in fixed_position_map)
+            return num_units - fixed_count
+        return num_units
     
     def get_current_step(self) -> int:
         """获取当前步数"""
@@ -111,25 +132,86 @@ class ReplayService:
             # 需要重新执行到目标步骤
             self._seek_to_step(step)
         
-        # 获取当前状态
-        state = self._env.env._get_state() if hasattr(self._env, 'env') else None
+        # 获取当前状态（确保状态是最新的）
+        state = self._get_current_state()
+        if state is None:
+            return {'error': 'Cannot get current state'}
         
         # 获取当前单元信息
         current_unit = None
         if hasattr(self._env, 'env'):
             env = self._env.env
-            if env.current_unit_idx < env.num_units:
+            if hasattr(env, 'current_unit_idx') and env.current_unit_idx < len(getattr(env, 'functional_units', [])):
                 current_unit = env.functional_units[env.current_unit_idx]
         
-        # 获取热力图
-        heatmap = self.get_heatmap()
+        # 获取当前步骤实际执行的动作（用于显示在热力图中）
+        # 逻辑说明：
+        # - placement_history[i] 记录的是步骤i执行的动作
+        # - 执行步骤i的动作后，_current_step变成i+1
+        # - 如果当前在步骤N（_current_step=N），说明已经执行了步骤0到N-1的动作
+        # - 想要查看步骤N的热力图，应该显示"在步骤N的状态下，模型会选择什么动作"
+        # - 如果步骤N已经执行了动作，应该显示步骤N实际执行的动作（placement_history[N]）
+        # - 如果步骤N还没有执行动作，显示Q值最大的动作
+        actual_action = None
+        if self._placement_history and len(self._placement_history) > 0:
+            # 检查当前步骤是否已经执行了动作
+            # placement_history的长度表示已执行的步骤数
+            # 如果_current_step < len(placement_history)，说明当前步骤已经执行了动作
+            if self._current_step < len(self._placement_history):
+                # 当前步骤已经执行了动作，显示实际执行的动作
+                actual_action = self._placement_history[self._current_step].get('action')
+                print(f"[DEBUG] 步骤 {self._current_step} 已执行动作: {actual_action}")
+            else:
+                print(f"[DEBUG] 步骤 {self._current_step} 尚未执行动作，显示Q值最大的动作")
+        
+        # 获取热力图（每次都重新计算，确保是最新的，并传入实际执行的动作）
+        # 如果actual_action为None，则显示Q值最大的动作
+        heatmap = self.get_heatmap(actual_action=actual_action)
+        
+        # 获取当前布局状态
+        layout_state = self.get_layout_state()
+        
+        # 获取已摆放单元列表（从环境获取，包含单元ID）
+        placed_units_list = []
+        if hasattr(self._env, 'env'):
+            env = self._env.env
+            functional_units = getattr(env, 'functional_units', [])
+            placed_units_env = getattr(env, 'placed_units', [])
+            for unit_idx, x, y, rotation in placed_units_env:
+                if unit_idx < len(functional_units):
+                    unit = functional_units[unit_idx]
+                    placed_units_list.append({
+                        'unit_id': unit.get('id', unit.get('name', f'unit_{unit_idx}')),
+                        'name': unit.get('name', unit.get('id', f'unit_{unit_idx}')),
+                        'x': x,
+                        'y': y,
+                        'angle': rotation,
+                    })
+            
+            # 添加固定障碍物（它们不在placed_units中，但应该显示在已摆放列表中）
+            layout_template = getattr(env, 'layout_template', None)
+            if layout_template:
+                fixed_obstacle_ids = set(env.placement_constraints.get('fixed_obstacles', []))
+                obstacles = layout_template.get('obstacles', [])
+                for obs in obstacles:
+                    obs_id = obs.get('id', '')
+                    if obs_id in fixed_obstacle_ids:
+                        placed_units_list.append({
+                            'unit_id': obs_id,
+                            'name': obs_id,
+                            'x': obs.get('x', 0),
+                            'y': obs.get('y', 0),
+                            'angle': obs.get('angle', 0),
+                            'is_fixed_obstacle': True,  # 标记为固定障碍物
+                        })
         
         return {
             'step': self._current_step,
             'total_steps': self.get_total_steps(),
             'current_unit': current_unit,
-            'placed_units': self._placement_history.copy(),
+            'placed_units': placed_units_list,  # 使用从环境获取的已摆放单元列表
             'heatmap': heatmap,
+            'layout': layout_state,  # 添加布局状态
         }
     
     def step_forward(self) -> Dict:
@@ -165,6 +247,12 @@ class ReplayService:
         # 执行动作
         next_state, reward, done, info = self._env.step(best_action)
         
+        # 调试：打印执行的动作信息
+        action_dict = None
+        if hasattr(self._env, '_action_idx_to_dict'):
+            action_dict = self._env._action_idx_to_dict(best_action)
+        print(f"[DEBUG] 步骤 {self._current_step} 执行动作: idx={best_action}, dict={action_dict}, reward={reward}")
+        
         # 记录放置历史
         self._placement_history.append({
             'step': self._current_step,
@@ -174,6 +262,10 @@ class ReplayService:
         
         self._current_step += 1
         
+        # 保存当前状态到历史
+        current_state = self._get_env_state_snapshot()
+        self._state_history.append(current_state)
+        
         return {
             'step': self._current_step,
             'action': best_action,
@@ -181,14 +273,50 @@ class ReplayService:
             'done': done,
         }
     
+    def step_backward(self) -> Dict:
+        """
+        回退一步（通过重新执行到上一步）
+        
+        Returns:
+            步骤结果
+        """
+        if self._env is None or self._net is None:
+            return {'error': 'Not initialized'}
+        
+        if self._current_step <= 0:
+            return {'error': 'Already at step 0', 'step': 0}
+        
+        # 通过跳转到上一步来实现回退
+        target_step = self._current_step - 1
+        self._seek_to_step(target_step)
+        
+        return {
+            'step': self._current_step,
+            'message': 'Stepped backward',
+        }
+    
     def _seek_to_step(self, target_step: int):
         """跳转到指定步骤"""
-        # 重置环境
-        self._env.reset()
-        self._current_step = 0
-        self._placement_history = []
+        if target_step < 0:
+            target_step = 0
+        if target_step > self.get_total_steps():
+            target_step = self.get_total_steps()
         
-        # 执行到目标步骤
+        # 如果已经在目标步骤，不需要操作
+        if target_step == self._current_step:
+            return
+        
+        # 如果目标步骤小于当前步骤，需要重置并重新执行
+        if target_step < self._current_step:
+            # 重置环境
+            self._env.reset()
+            self._current_step = 0
+            self._placement_history = []
+            self._state_history = []
+            if self._initial_state:
+                self._state_history.append(self._initial_state)
+        
+        # 执行到目标步骤（从当前步骤继续）
         while self._current_step < target_step:
             result = self.step_forward()
             if result.get('done') or result.get('error'):
@@ -199,12 +327,19 @@ class ReplayService:
         if hasattr(self._env, 'env'):
             state_dict = self._env.env._get_state()
             # 转换为模型输入格式
-            return self._env._dict_to_array(state_dict)
+            state_array = self._env._dict_to_array(state_dict)
+            # 调试：打印状态信息
+            if hasattr(self._env.env, 'current_unit_idx'):
+                print(f"[DEBUG] 获取状态: current_step={self._current_step}, current_unit_idx={self._env.env.current_unit_idx}, placed_units={len(getattr(self._env.env, 'placed_units', []))}")
+            return state_array
         return None
     
-    def get_heatmap(self) -> Dict:
+    def get_heatmap(self, actual_action=None) -> Dict:
         """
         获取当前状态的 Q 值热力图
+        
+        Args:
+            actual_action: 实际执行的动作索引（可选，用于显示实际动作而不是最佳动作）
         
         Returns:
             热力图数据
@@ -218,7 +353,60 @@ class ReplayService:
         
         from agent.agent import get_q_values_heatmap
         
-        return get_q_values_heatmap(self._net, self._env, state)
+        return get_q_values_heatmap(self._net, self._env, state, actual_action=actual_action)
+    
+    def _get_env_state_snapshot(self) -> Dict:
+        """获取环境状态的快照（用于回退）"""
+        if self._env is None:
+            return None
+        
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        
+        placed_units = []
+        for unit_id, x, y, rotation in getattr(env, 'placed_units', []):
+            placed_units.append((unit_id, x, y, rotation))
+        
+        return {
+            'current_unit_idx': getattr(env, 'current_unit_idx', 0),
+            'placed_units': placed_units.copy(),
+        }
+    
+    def _restore_env_state(self, state_snapshot: Dict):
+        """恢复环境状态"""
+        if self._env is None or state_snapshot is None:
+            return
+        
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        
+        # 重置环境
+        self._env.reset()
+        
+        # 恢复已放置的单元
+        for unit_id, x, y, rotation in state_snapshot.get('placed_units', []):
+            # 找到对应的单元并放置
+            unit_idx = None
+            for idx, unit in enumerate(getattr(env, 'functional_units', [])):
+                if unit.get('id') == unit_id:
+                    unit_idx = idx
+                    break
+            
+            if unit_idx is not None:
+                # 计算动作索引（需要根据环境的具体实现）
+                # 这里假设有一个方法可以直接放置单元
+                try:
+                    # 尝试通过环境的方法放置
+                    if hasattr(env, '_place_unit_at_position'):
+                        env._place_unit_at_position(unit_idx, x, y, rotation)
+                    else:
+                        # 如果没有直接方法，需要通过动作来放置
+                        # 这里需要根据实际环境实现来调整
+                        pass
+                except Exception as e:
+                    print(f"恢复状态时放置单元失败: {e}")
+        
+        # 恢复当前单元索引
+        if hasattr(env, 'current_unit_idx'):
+            env.current_unit_idx = state_snapshot.get('current_unit_idx', 0)
     
     def get_layout_state(self) -> Dict:
         """获取当前布局状态（用于可视化）"""
@@ -228,18 +416,71 @@ class ReplayService:
         env = self._env.env if hasattr(self._env, 'env') else self._env
         
         placed_units = []
-        for unit_id, x, y, rotation in getattr(env, 'placed_units', []):
-            placed_units.append({
-                'unit_id': unit_id,
-                'x': x,
-                'y': y,
-                'angle': rotation,
-            })
+        functional_units = getattr(env, 'functional_units', [])
+        
+        # 环境的placed_units存储的是(unit_idx, x, y, rotation)
+        for unit_idx, x, y, rotation in getattr(env, 'placed_units', []):
+            # 从functional_units中查找单元信息
+            if unit_idx < len(functional_units):
+                unit_info = functional_units[unit_idx]
+                unit_id = unit_info.get('id', unit_info.get('name', f'unit_{unit_idx}'))
+                
+                # 获取尺寸（注意：size是(length, width)，即(高, 宽)）
+                size = unit_info.get('size', [5, 4])
+                length, width = size[0], size[1]
+                
+                # 获取缺口信息（如station_4有缺口）
+                notch = unit_info.get('notch', [0, 0])
+                notch_length = notch[0] if len(notch) > 0 else 0
+                notch_width = notch[1] if len(notch) > 1 else 0
+                
+                # 判断是否是障碍物
+                is_obstacle = unit_info.get('is_obstacle', False)
+                
+                unit_data = {
+                    'unit_id': unit_id,
+                    'x': x,
+                    'y': y,
+                    'angle': rotation,
+                    'width': width,  # 宽度
+                    'length': length,  # 使用length而不是height，与ResultsPage一致
+                    'notch_length': notch_length,
+                    'notch_width': notch_width,
+                    'label': unit_info.get('name', unit_info.get('id', unit_id)),
+                    'typeLabel': 'Obstacle' if is_obstacle else 'FU',
+                }
+                
+                placed_units.append(unit_data)
+        
+        # 添加固定障碍物（从layout_template中读取）
+        fixed_obstacles = []
+        layout_template = getattr(env, 'layout_template', None)
+        if layout_template:
+            fixed_obstacle_ids = set(env.placement_constraints.get('fixed_obstacles', []))
+            obstacles = layout_template.get('obstacles', [])
+            for obs in obstacles:
+                obs_id = obs.get('id', '')
+                if obs_id in fixed_obstacle_ids:
+                    fixed_obstacles.append({
+                        'unit_id': obs_id,
+                        'x': obs.get('x', 0),
+                        'y': obs.get('y', 0),
+                        'angle': obs.get('angle', 0),
+                        'width': obs.get('width', 4),
+                        'length': obs.get('length', 4),  # 使用length
+                        'notch_length': obs.get('notch_length', 0),
+                        'notch_width': obs.get('notch_width', 0),
+                        'label': obs_id,
+                        'typeLabel': 'Obstacle',
+                    })
+        
+        # 合并已放置单元和固定障碍物
+        all_units = placed_units + fixed_obstacles
         
         return {
             'grid_size': env.grid_size,
-            'placed_units': placed_units,
-            'current_unit_idx': env.current_unit_idx,
+            'placed_units': all_units,  # 包含固定障碍物
+            'current_unit_idx': getattr(env, 'current_unit_idx', 0),
         }
 
 
@@ -259,6 +500,7 @@ def clear_replay_service(project_id: str):
     """清除回放服务实例"""
     if project_id in _replay_instances:
         del _replay_instances[project_id]
+
 
 
 

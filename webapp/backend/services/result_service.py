@@ -33,9 +33,16 @@ class ResultService:
         layouts = []
         for cp in checkpoints[start:end]:
             layout_data = None
-            if cp.layout_path and Path(cp.layout_path).exists():
-                with open(cp.layout_path, 'r') as f:
-                    layout_data = json.load(f)
+            if cp.layout_path:
+                layout_path_obj = Path(cp.layout_path)
+                if layout_path_obj.exists():
+                    try:
+                        with open(layout_path_obj, 'r', encoding='utf-8') as f:
+                            layout_data = json.load(f)
+                    except Exception as e:
+                        print(f"Warning: Failed to load layout from {cp.layout_path}: {e}")
+                else:
+                    print(f"Warning: Layout file not found: {cp.layout_path}")
             
             layouts.append({
                 'episode': cp.episode,
@@ -44,6 +51,7 @@ class ResultService:
                 'created_at': cp.created_at.isoformat(),
                 'layout': layout_data,
                 'metrics': cp.metrics_snapshot,
+                'layout_path': cp.layout_path,  # 添加路径信息用于调试
             })
         
         return {
@@ -60,13 +68,23 @@ class ResultService:
             # 如果没有标记best，fallback到最高reward
             cps = crud.get_checkpoints(self.db, project_id)
             if not cps:
+                print(f"[DEBUG] 项目 {project_id} 没有checkpoints")
                 return None
             checkpoint = max(cps, key=lambda c: c.reward or float("-inf"))
+            print(f"[DEBUG] 项目 {project_id} 使用reward最高的checkpoint: ep{checkpoint.episode}")
+        else:
+            print(f"[DEBUG] 项目 {project_id} 找到best checkpoint: ep{checkpoint.episode}")
         
         layout_data = None
-        if checkpoint.layout_path and Path(checkpoint.layout_path).exists():
-            with open(checkpoint.layout_path, 'r') as f:
+        layout_path = checkpoint.layout_path
+        print(f"[DEBUG] checkpoint.layout_path = {layout_path}")
+        
+        if layout_path and Path(layout_path).exists():
+            with open(layout_path, 'r', encoding='utf-8') as f:
                 layout_data = json.load(f)
+            print(f"[DEBUG] 成功读取布局文件: {layout_path}")
+        else:
+            print(f"[WARN] 布局文件不存在或路径为空: {layout_path}")
         
         return {
             'episode': checkpoint.episode,
@@ -74,6 +92,7 @@ class ResultService:
             'created_at': checkpoint.created_at.isoformat(),
             'layout': layout_data,
             'metrics': checkpoint.metrics_snapshot,
+            'is_best': checkpoint.is_best,
         }
     
     def get_metrics_curve(

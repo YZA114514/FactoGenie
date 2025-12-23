@@ -17,8 +17,9 @@ import {
   Card,
   message,
   Divider,
+  Tooltip,
 } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import ReactFlow, {
   Background,
   Controls,
@@ -55,6 +56,8 @@ const BuilderPage = () => {
     addRoute,
     addMaterial,
     addTransporter,
+    constraints,
+    setConstraints,
   } = useFactoryStore();
 
   const [nodeForm] = Form.useForm<FactoryNode & { inventory?: { material: string; quantity: number }[] }>();
@@ -72,9 +75,41 @@ const BuilderPage = () => {
   const [savingBackend, setSavingBackend] = useState(false);
   const [savingLocal, setSavingLocal] = useState(false);
   const [lastImport, setLastImport] = useState<{ type: "layout" | "factory"; name: string } | null>(null);
-
+  const [activeCollapseKeys, setActiveCollapseKeys] = useState<string[]>(["overview"]);
+  
   const fuNodes = useMemo(() => nodes.filter((n) => n.type === "FU"), [nodes]);
   const obstacleNodes = useMemo(() => nodes.filter((n) => n.type === "Obstacle"), [nodes]);
+  
+  // 从store读取约束配置
+  const [fixedPositions, setFixedPositions] = useState<Array<{ unit_id: string; x: number; y: number; angle: number }>>(
+    (constraints?.fixed_positions || []) as Array<{ unit_id: string; x: number; y: number; angle: number }>
+  );
+  const [adjacencyConstraints, setAdjacencyConstraints] = useState<Array<{ unit_a: string; unit_b: string; direction: "any" | "horizontal" | "vertical" }>>(
+    (constraints?.adjacency || []).map(a => ({ ...a, direction: (a.direction || "any") as "any" | "horizontal" | "vertical" }))
+  );
+  const [wallAttachConstraints, setWallAttachConstraints] = useState<Array<{ unit_id: string; wall: "top" | "bottom" | "left" | "right" }>>(
+    (constraints?.wall_attach || []).map(w => ({ ...w, wall: (w.wall || "left") as "top" | "bottom" | "left" | "right" }))
+  );
+  
+  // 当约束配置改变时，同步到store（保留已有的fixed_obstacles等）
+  useEffect(() => {
+    if (setConstraints) {
+      setConstraints({
+        ...constraints,  // 保留已有配置（如fixed_obstacles）
+        fixed_positions: fixedPositions,
+        adjacency: adjacencyConstraints,
+        wall_attach: wallAttachConstraints,
+      });
+    }
+  }, [fixedPositions, adjacencyConstraints, wallAttachConstraints, setConstraints]);
+  
+  const allNodeOptions = useMemo(() => [...fuNodes, ...obstacleNodes].map((n) => ({ label: `${n.id} (${n.type})`, value: n.id })), [fuNodes, obstacleNodes]);
+  const wallOptions = [
+    { label: "上 (top)", value: "top" },
+    { label: "下 (bottom)", value: "bottom" },
+    { label: "左 (left)", value: "left" },
+    { label: "右 (right)", value: "right" },
+  ];
   const summary = [
     { label: "功能单元 (FU)", value: fuNodes.length },
     { label: "障碍物 (Obstacle)", value: obstacleNodes.length },
@@ -250,6 +285,8 @@ const BuilderPage = () => {
       notch_width: n.dimensions.notchWidth,
       movable: true,
       angle: n.angle,
+      x: n.x,  // 保留原始坐标（从JSON导入）
+      y: n.y,  // 保留原始坐标（从JSON导入）
     }));
     const obstacles = obstacleNodes.map((n) => ({
       id: n.id,
@@ -261,7 +298,25 @@ const BuilderPage = () => {
       notch_width: n.dimensions.notchWidth,
       movable: true,
       angle: n.angle,
+      x: n.x,  // 保留原始坐标（从JSON导入，尤其是fixed_obstacles）
+      y: n.y,  // 保留原始坐标（从JSON导入，尤其是fixed_obstacles）
     }));
+    
+    // 从store读取固定/可移动障碍物配置（保留从JSON导入的配置）
+    const fixedObstacleIds = constraints?.fixed_obstacles?.length > 0 
+      ? constraints.fixed_obstacles 
+      : [];  // 如果没有配置，默认为空（所有障碍物可移动）
+    const movableObstacleIds = constraints?.movable_obstacles?.length > 0 
+      ? constraints.movable_obstacles 
+      : obstacles.map((o) => o.id).filter(id => !fixedObstacleIds.includes(id));
+    
+    // 默认需要贴墙的单元（优先使用store配置，否则自动识别dock类型）
+    const defaultWallAttach = constraints?.default_wall_attach?.length > 0
+      ? constraints.default_wall_attach
+      : fus
+          .filter((f) => f.id.toLowerCase().includes('dock') || f.id.toLowerCase().includes('rec') || f.id.toLowerCase().includes('ship'))
+          .map((f) => f.id);
+    
     const size = { width: canvasSize.width, height: canvasSize.height };
     return {
       // 兼容老后端需要的 canvas 字段，同时保留新版 factory
@@ -269,6 +324,14 @@ const BuilderPage = () => {
       factory: { length: size.width, width: size.height, grid_spacing: 1 },
       fus,
       obstacles,
+      constraints: {
+        fixed_obstacles: fixedObstacleIds,
+        movable_obstacles: movableObstacleIds,
+        default_wall_attach: defaultWallAttach,
+        fixed_positions: fixedPositions,
+        adjacency: adjacencyConstraints,
+        wall_attach: wallAttachConstraints,
+      },
     };
   };
 
@@ -349,6 +412,8 @@ const BuilderPage = () => {
           notchWidth: f.notch_width ?? existing?.dimensions.notchWidth,
         },
         angle: f.angle ?? existing?.angle,
+        x: f.x ?? existing?.x,  // 保留原始坐标
+        y: f.y ?? existing?.y,  // 保留原始坐标
         initialInventory: existing?.initialInventory,
       });
     });
@@ -364,6 +429,8 @@ const BuilderPage = () => {
           notchWidth: o.notch_width ?? existing?.dimensions.notchWidth,
         },
         angle: o.angle ?? existing?.angle,
+        x: o.x ?? existing?.x,  // 保留原始坐标
+        y: o.y ?? existing?.y,  // 保留原始坐标
       });
     });
     const snapshot: FactoryStateSnapshot = {
@@ -376,8 +443,27 @@ const BuilderPage = () => {
       canvasSize: newCanvas,
     };
     useFactoryStore.setState(snapshot);
+    
+    // 读取并保存约束配置（包括 fixed_obstacles）
+    const jsonConstraints = (data as any).constraints || {};
+    setConstraints({
+      fixed_obstacles: jsonConstraints.fixed_obstacles || [],
+      movable_obstacles: jsonConstraints.movable_obstacles || [],
+      default_wall_attach: jsonConstraints.default_wall_attach || [],
+      fixed_positions: jsonConstraints.fixed_positions || [],
+      adjacency: jsonConstraints.adjacency || [],
+      wall_attach: jsonConstraints.wall_attach || [],
+    });
+    
+    // 同步本地状态
+    setFixedPositions(jsonConstraints.fixed_positions || []);
+    setAdjacencyConstraints(jsonConstraints.adjacency || []);
+    setWallAttachConstraints(jsonConstraints.wall_attach || []);
+    
     setLastImport({ type: "layout", name: file.name });
-    message.success("布局已导入至建模");
+    // 自动展开相关折叠面板
+    setActiveCollapseKeys((prev) => [...new Set([...prev, "nodes", "resources", "overview", "constraints"])]);
+    message.success("布局已导入至建模（包含约束配置）");
   };
 
   const importFactoryConfig = async (file: File) => {
@@ -456,6 +542,8 @@ const BuilderPage = () => {
       monitors: (data.monitor || []).map((m) => ({ node: m.node, material: m.material })),
     });
     setLastImport({ type: "factory", name: file.name });
+    // 自动展开相关折叠面板
+    setActiveCollapseKeys((prev) => [...new Set([...prev, "resources", "assemblies", "meta", "overview"])]);
     message.success("工厂配置已导入至建模");
   };
 
@@ -639,7 +727,7 @@ const BuilderPage = () => {
         </Space>
       </Card>
 
-      <Collapse defaultActiveKey={["overview"]}>
+      <Collapse activeKey={activeCollapseKeys} onChange={(keys) => setActiveCollapseKeys(keys as string[])}>
         <Panel header="当前资源概览" key="overview">
           <List
             dataSource={summary}
@@ -912,6 +1000,207 @@ const BuilderPage = () => {
               )}
             </Form.List>
           </Form>
+        </Panel>
+
+        <Panel header="特殊约束配置" key="constraints">
+          <Space direction="vertical" style={{ width: "100%" }} size="large">
+            <Alert
+              type="info"
+              message="特殊约束说明"
+              description="这些约束会在训练时生效，限制单元的摆放位置和关系。固定位置约束会在训练开始前预先放置单元。"
+              showIcon
+            />
+
+            <Divider orientation="left">
+              <Space>
+                <Text strong>固定位置约束</Text>
+                <Tooltip title="指定单元必须放置在特定坐标位置。这些单元会在训练开始前预先放置，不参与RL训练过程。适用于需要固定位置的设施（如出入口、固定障碍物等）。">
+                  <QuestionCircleOutlined style={{ color: "#999" }} />
+                </Tooltip>
+              </Space>
+            </Divider>
+            <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+              设置效果：指定的单元会在训练开始前被放置在固定位置，不会参与强化学习的摆放决策。
+            </Text>
+            {fixedPositions.map((fp, idx) => (
+              <Row key={idx} gutter={8} align="middle">
+                <Col span={6}>
+                  <Select
+                    value={fp.unit_id}
+                    onChange={(v) => {
+                      const newList = [...fixedPositions];
+                      newList[idx] = { ...newList[idx], unit_id: v };
+                      setFixedPositions(newList);
+                    }}
+                    options={allNodeOptions}
+                    placeholder="选择单元"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={4}>
+                  <InputNumber
+                    value={fp.x}
+                    onChange={(v) => {
+                      const newList = [...fixedPositions];
+                      newList[idx] = { ...newList[idx], x: v ?? 0 };
+                      setFixedPositions(newList);
+                    }}
+                    placeholder="X坐标"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={4}>
+                  <InputNumber
+                    value={fp.y}
+                    onChange={(v) => {
+                      const newList = [...fixedPositions];
+                      newList[idx] = { ...newList[idx], y: v ?? 0 };
+                      setFixedPositions(newList);
+                    }}
+                    placeholder="Y坐标"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={4}>
+                  <Select
+                    value={fp.angle}
+                    onChange={(v) => {
+                      const newList = [...fixedPositions];
+                      newList[idx] = { ...newList[idx], angle: v };
+                      setFixedPositions(newList);
+                    }}
+                    options={[
+                      { label: "0°", value: 0 },
+                      { label: "90°", value: 90 },
+                      { label: "180°", value: 180 },
+                      { label: "270°", value: 270 },
+                    ]}
+                    placeholder="角度"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={3}>
+                  <Button danger icon={<DeleteOutlined />} onClick={() => setFixedPositions(fixedPositions.filter((_, i) => i !== idx))} />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" icon={<PlusOutlined />} onClick={() => setFixedPositions([...fixedPositions, { unit_id: "", x: 0, y: 0, angle: 0 }])}>
+              添加固定位置
+            </Button>
+
+            <Divider orientation="left">
+              <Space>
+                <Text strong>相邻约束</Text>
+                <Tooltip title="指定两个单元必须紧邻放置。可以指定相邻方向（水平、垂直或任意方向）。适用于需要紧密配合的设施（如工作站和缓冲区）。">
+                  <QuestionCircleOutlined style={{ color: "#999" }} />
+                </Tooltip>
+              </Space>
+            </Divider>
+            <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+              设置效果：训练时会强制单元A和单元B必须相邻放置，违反此约束会降低奖励分数。
+            </Text>
+            {adjacencyConstraints.map((adj, idx) => (
+              <Row key={idx} gutter={8} align="middle">
+                <Col span={6}>
+                  <Select
+                    value={adj.unit_a}
+                    onChange={(v) => {
+                      const newList = [...adjacencyConstraints];
+                      newList[idx] = { ...newList[idx], unit_a: v };
+                      setAdjacencyConstraints(newList);
+                    }}
+                    options={allNodeOptions}
+                    placeholder="单元A"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Select
+                    value={adj.unit_b}
+                    onChange={(v) => {
+                      const newList = [...adjacencyConstraints];
+                      newList[idx] = { ...newList[idx], unit_b: v };
+                      setAdjacencyConstraints(newList);
+                    }}
+                    options={allNodeOptions}
+                    placeholder="单元B"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Select
+                    value={adj.direction}
+                    onChange={(v: "any" | "horizontal" | "vertical") => {
+                      const newList = [...adjacencyConstraints];
+                      newList[idx] = { ...newList[idx], direction: v };
+                      setAdjacencyConstraints(newList);
+                    }}
+                    options={[
+                      { label: "任意方向", value: "any" as const },
+                      { label: "水平相邻", value: "horizontal" as const },
+                      { label: "垂直相邻", value: "vertical" as const },
+                    ]}
+                    placeholder="方向"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={3}>
+                  <Button danger icon={<DeleteOutlined />} onClick={() => setAdjacencyConstraints(adjacencyConstraints.filter((_, i) => i !== idx))} />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" icon={<PlusOutlined />} onClick={() => setAdjacencyConstraints([...adjacencyConstraints, { unit_a: "", unit_b: "", direction: "any" }])}>
+              添加相邻约束
+            </Button>
+
+            <Divider orientation="left">
+              <Space>
+                <Text strong>贴墙约束</Text>
+                <Tooltip title="指定单元必须靠指定墙壁放置。适用于需要靠近边界的设施（如装卸区、出入口等）。">
+                  <QuestionCircleOutlined style={{ color: "#999" }} />
+                </Tooltip>
+              </Space>
+            </Divider>
+            <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
+              设置效果：训练时会强制指定单元必须靠指定墙壁放置，违反此约束会降低奖励分数。
+            </Text>
+            {wallAttachConstraints.map((wa, idx) => (
+              <Row key={idx} gutter={8} align="middle">
+                <Col span={8}>
+                  <Select
+                    value={wa.unit_id}
+                    onChange={(v) => {
+                      const newList = [...wallAttachConstraints];
+                      newList[idx] = { ...newList[idx], unit_id: v };
+                      setWallAttachConstraints(newList);
+                    }}
+                    options={allNodeOptions}
+                    placeholder="选择单元"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Select
+                    value={wa.wall}
+                    onChange={(v: "top" | "bottom" | "left" | "right") => {
+                      const newList = [...wallAttachConstraints];
+                      newList[idx] = { ...newList[idx], wall: v };
+                      setWallAttachConstraints(newList);
+                    }}
+                    options={wallOptions}
+                    placeholder="选择墙壁"
+                    style={{ width: "100%" }}
+                  />
+                </Col>
+                <Col span={3}>
+                  <Button danger icon={<DeleteOutlined />} onClick={() => setWallAttachConstraints(wallAttachConstraints.filter((_, i) => i !== idx))} />
+                </Col>
+              </Row>
+            ))}
+            <Button type="dashed" icon={<PlusOutlined />} onClick={() => setWallAttachConstraints([...wallAttachConstraints, { unit_id: "", wall: "left" }])}>
+              添加贴墙约束
+            </Button>
+          </Space>
         </Panel>
       </Collapse>
 

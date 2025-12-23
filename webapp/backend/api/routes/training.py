@@ -57,16 +57,25 @@ async def list_projects(
     size: int = 20,
     status: Optional[str] = None,
     service: ProjectService = Depends(get_project_service),
+    training_service: TrainingService = Depends(get_training_service),
 ):
     """获取项目列表"""
+    # 清理孤立的running状态项目（服务器重启后执行一次）
+    training_service.cleanup_orphan_running_projects()
+    
     result = service.list_projects(page=page, size=size, status=status)
     
     projects_data = []
     for p in result['projects']:
+        # 检查running状态是否真实
+        actual_status = p.status
+        if p.status == 'running' and not TrainingService.is_task_actually_running(p.id):
+            actual_status = 'interrupted'
+        
         projects_data.append({
             "id": p.id,
             "name": p.name,
-            "status": p.status,
+            "status": actual_status,
             "current_episode": p.current_episode,
             "total_steps": p.total_steps,
             "best_reward": p.best_reward,

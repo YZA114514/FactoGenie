@@ -6,12 +6,14 @@ import {
   DatabaseOutlined,
   HomeOutlined,
   ProjectOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import HomePage from './pages/HomePage';
 import TrainingPage from './pages/TrainingPage';
 import ResultsPage from './pages/ResultsPage';
 import RecordsPage from './pages/RecordsPage';
 import BuilderPage from './pages/BuilderPage';
+import ReplayPage from './pages/ReplayPage';
 
 const { Header, Content, Footer } = Layout;
 const { Title } = Typography;
@@ -22,6 +24,7 @@ const navItems = [
   { key: 'training', label: <Link to="/training">训练控制</Link>, icon: <PlayCircleOutlined /> },
   { key: 'results', label: <Link to="/results">结果查看</Link>, icon: <LineChartOutlined /> },
   { key: 'records', label: <Link to="/records">训练记录</Link>, icon: <DatabaseOutlined /> },
+  { key: 'replay', label: <Link to="/replay">回放 / 热力图</Link>, icon: <EyeOutlined /> },
 ];
 
 const App = () => {
@@ -63,6 +66,7 @@ const App = () => {
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/results" element={<ResultsPage />} />
           <Route path="/records" element={<RecordsPage />} />
+          <Route path="/replay" element={<ReplayPage />} />
         </Routes>
       </Content>
       <Footer style={{ textAlign: 'center' }}>

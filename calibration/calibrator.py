@@ -66,7 +66,7 @@ class Calibrator:
     def calibrate(
         self,
         n_episodes: int = 100,
-        best_percentile: float = 20,
+        best_percentile: float = 30,
         worst_percentile: float = 90,
         verbose: bool = True,
     ) -> Dict[str, Dict[str, float]]:
@@ -75,7 +75,7 @@ class Calibrator:
         
         Args:
             n_episodes: 随机摆放的回合数
-            best_percentile: 最优值的分位线（如20表示P20，即最优20%作为best值）
+            best_percentile: 最优值的分位线（如30表示P30，即最优30%作为best值）
             worst_percentile: 最差值的分位线（如90表示P90）
             verbose: 是否显示进度
             
@@ -232,7 +232,12 @@ class Calibrator:
                 'std': float(np.std(values)),
             }
         
-        # 如果用户指定了吞吐量目标，覆盖best值
+        # 吞吐量的最优值始终固定为400（根据仿真配置：1天=20000时间单位，产能400个/天）
+        # 不参与校准更新
+        if 'throughput' in bounds:
+            bounds['throughput']['best'] = 400.0
+        
+        # 如果用户指定了吞吐量目标，覆盖best值（但通常不建议）
         if self.throughput_target is not None and 'throughput' in bounds:
             bounds['throughput']['best'] = self.throughput_target
         

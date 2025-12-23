@@ -53,6 +53,11 @@ def get_projects(
     return query.order_by(Project.created_at.desc()).offset(skip).limit(limit).all()
 
 
+def get_projects_by_status(db: Session, status: str) -> List[Project]:
+    """获取指定状态的所有项目"""
+    return db.query(Project).filter(Project.status == status).all()
+
+
 def count_projects(db: Session, status: str = None) -> int:
     """统计项目数量"""
     query = db.query(Project)

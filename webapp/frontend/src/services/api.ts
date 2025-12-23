@@ -117,6 +117,13 @@ export const trainingApi = {
     const res = await api.get<ApiResponse<TrainingProgress>>(`/training/projects/${projectId}/status`);
     return res.data;
   },
+
+  getCheckpoints: async (projectId: string, onlyBest = false) => {
+    const res = await api.get<ApiResponse<any[]>>(`/training/projects/${projectId}/checkpoints`, {
+      params: { only_best: onlyBest },
+    });
+    return res.data;
+  },
 };
 
 // ========== 校准 ==========
@@ -184,6 +191,65 @@ export const resultsApi = {
 
   getHeatmap: async (taskId: string, episode: number, step: number) => {
     const res = await api.get<ApiResponse<ActionHeatmap>>(`/results/${taskId}/heatmap/${episode}/${step}`);
+    return res.data;
+  },
+
+  getLosses: async (taskId: string) => {
+    const res = await api.get<ApiResponse<{ values: { step: number; loss: number }[]; count: number }>>(
+      `/results/${taskId}/losses`
+    );
+    return res.data;
+  },
+
+  getRewardsCsv: async (taskId: string) => {
+    const res = await api.get<ApiResponse<{ values: { episode: number; step: number; reward: number; mean_reward: number; epsilon: number }[]; count: number }>>(
+      `/results/${taskId}/rewards-csv`
+    );
+    return res.data;
+  },
+};
+
+// ========== 回放 ==========
+
+export const replayApi = {
+  start: async (projectId: string, episode: number) => {
+    const res = await api.post<ApiResponse<any>>(`/replay/${projectId}/start`, { episode });
+    return res.data;
+  },
+
+  step: async (projectId: string, step: number) => {
+    const res = await api.get<ApiResponse<any>>(`/replay/${projectId}/step/${step}`);
+    return res.data;
+  },
+
+  forward: async (projectId: string) => {
+    const res = await api.post<ApiResponse<any>>(`/replay/${projectId}/forward`);
+    return res.data;
+  },
+
+  backward: async (projectId: string) => {
+    const res = await api.post<ApiResponse<any>>(`/replay/${projectId}/backward`);
+    return res.data;
+  },
+
+  heatmap: async (projectId: string) => {
+    const res = await api.get<ApiResponse<{ heatmap: ActionHeatmap }>>(`/replay/${projectId}/heatmap`);
+    return res.data;
+  },
+
+  close: async (projectId: string) => {
+    const res = await api.delete<ApiResponse<null>>(`/replay/${projectId}/session`);
+    return res.data;
+  },
+
+  getInventoryChart: async (projectId: string, episode?: number) => {
+    const res = await api.get<ApiResponse<{
+      series: Array<{ name: string; data: Array<[number, number]> }>;
+      monitors: Array<[string, string]>;
+      duration: number;
+    }>>(`/replay/${projectId}/inventory-chart`, {
+      params: episode !== undefined ? { episode } : undefined,
+    });
     return res.data;
   },
 };

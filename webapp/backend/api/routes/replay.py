@@ -88,6 +88,9 @@ async def get_step_data(
     
     try:
         data = replay_service.get_step_data(step)
+        # 确保返回的数据包含热力图
+        if 'heatmap' not in data or data.get('heatmap') is None:
+            data['heatmap'] = replay_service.get_heatmap()
         return {
             "code": 0,
             "data": data
@@ -107,6 +110,37 @@ async def step_forward(project_id: str):
     
     try:
         result = replay_service.step_forward()
+        # 添加布局状态
+        if 'error' not in result and 'done' not in result:
+            result['layout'] = replay_service.get_layout_state()
+        return {
+            "code": 0,
+            "data": result
+        }
+    except Exception as e:
+        return {
+            "code": 5000,
+            "message": str(e),
+            "data": None
+        }
+
+
+@router.post("/{project_id}/backward")
+async def step_backward(project_id: str):
+    """回退一步回放"""
+    replay_service = get_replay_service(project_id)
+    
+    try:
+        result = replay_service.step_backward()
+        # 添加布局状态
+        if 'error' not in result:
+            result['layout'] = replay_service.get_layout_state()
+            # 获取完整的步骤数据
+            step_data = replay_service.get_step_data()
+            result['step'] = step_data.get('step')
+            result['total_steps'] = step_data.get('total_steps')
+            result['current_unit'] = step_data.get('current_unit')
+            result['placed_units'] = step_data.get('placed_units')
         return {
             "code": 0,
             "data": result
@@ -148,6 +182,104 @@ async def close_replay_session(project_id: str):
     """关闭回放会话"""
     clear_replay_service(project_id)
     return {"code": 0, "message": "Session closed"}
+
+
+@router.get("/{project_id}/inventory-chart")
+async def get_inventory_chart(
+    project_id: str,
+    episode: Optional[int] = None,
+    project_service: ProjectService = Depends(get_project_service),
+):
+    """
+    获取物料量变化图表数据
+    
+    运行仿真并返回各监控点的物料量随时间变化数据
+    
+    Args:
+        project_id: 项目ID
+        episode: 可选的episode编号，用于获取对应检查点的布局
+    """
+    import sys
+    from pathlib import Path
+    import json
+    
+    # 添加simulation模块到路径
+    project_root = Path(__file__).parent.parent.parent.parent.parent
+    sys.path.insert(0, str(project_root))
+    
+    try:
+        from simulation.interface import get_inventory_chart_data
+        
+        # 获取项目配置文件路径
+        project_dir = project_service.get_project_dir(project_id)
+        factory_config_path = project_dir / "factory_config.json"
+        
+        if not factory_config_path.exists():
+            return {"code": 1002, "message": "Factory config not found", "data": None}
+        
+        # 优先使用检查点的布局文件，否则使用best布局，最后使用初始布局
+        layout_path = None
+        layouts_dir = project_dir / "layouts"
+        
+        print(f"[INFO] inventory-chart 请求: project_id={project_id}, episode={episode}")
+        
+        if episode is not None and layouts_dir.exists():
+            # 尝试使用指定episode的布局
+            episode_layout = layouts_dir / f"layout_ep{episode}.json"
+            print(f"[INFO] 尝试查找布局: {episode_layout}, 存在: {episode_layout.exists()}")
+            if episode_layout.exists():
+                layout_path = episode_layout
+        
+        if layout_path is None and layouts_dir.exists():
+            # 尝试使用best布局
+            best_layout = layouts_dir / "layout_best.json"
+            if best_layout.exists():
+                layout_path = best_layout
+            else:
+                # 使用最新的布局文件（按episode数字排序）
+                layout_files = list(layouts_dir.glob("layout_ep*.json"))
+                if layout_files:
+                    # 提取episode数字并按数字排序
+                    def get_episode_num(p):
+                        try:
+                            return int(p.stem.replace("layout_ep", ""))
+                        except:
+                            return 0
+                    layout_files.sort(key=get_episode_num, reverse=True)
+                    layout_path = layout_files[0]
+        
+        if layout_path is None:
+            # 回退到初始布局配置
+            layout_config_path = project_dir / "layout_config.json"
+            if layout_config_path.exists():
+                layout_path = layout_config_path
+        
+        if layout_path is None:
+            return {"code": 1002, "message": "No layout file found", "data": None}
+        
+        print(f"[INFO] 使用布局文件: {layout_path}")
+        
+        # 从训练参数获取仿真时长
+        training_params_path = project_dir / "training_params.json"
+        duration = 2000.0  # 默认时长
+        if training_params_path.exists():
+            with open(training_params_path, 'r', encoding='utf-8') as f:
+                params = json.load(f)
+                duration = params.get('simulation_duration', 2000.0)
+        
+        # 获取物料量变化数据
+        chart_data = get_inventory_chart_data(
+            config_path=str(factory_config_path),
+            duration=duration,
+            layout_path=str(layout_path),
+        )
+        
+        return {"code": 0, "data": chart_data}
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"code": 5000, "message": str(e), "data": None}
 
 
 @router.websocket("/ws/{project_id}/{episode}")
