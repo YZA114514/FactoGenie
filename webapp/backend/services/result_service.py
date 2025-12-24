@@ -17,6 +17,35 @@ class ResultService:
         self.db = db
         self.data_dir = Path(__file__).parent.parent.parent.parent / "data"
     
+    def _resolve_path(self, db_path: str, project_id: str, subdir: str) -> Optional[Path]:
+        """
+        解析数据库中存储的路径，转换为当前机器的本地路径
+        
+        Args:
+            db_path: 数据库中存储的路径（可能是其他机器的绝对路径）
+            project_id: 项目ID
+            subdir: 子目录名称（如 'checkpoints', 'layouts'）
+        
+        Returns:
+            本地路径，如果无法解析则返回None
+        """
+        if not db_path:
+            return None
+        
+        # 先尝试直接使用（如果路径本身就是有效的）
+        direct_path = Path(db_path)
+        if direct_path.exists():
+            return direct_path
+        
+        # 从路径中提取文件名，用当前项目目录重建路径
+        filename = Path(db_path).name
+        local_path = self.data_dir / "projects" / project_id / subdir / filename
+        
+        if local_path.exists():
+            return local_path
+        
+        return None
+    
     def get_layouts(
         self,
         project_id: str,
@@ -33,16 +62,15 @@ class ResultService:
         layouts = []
         for cp in checkpoints[start:end]:
             layout_data = None
-            if cp.layout_path:
-                layout_path_obj = Path(cp.layout_path)
-                if layout_path_obj.exists():
-                    try:
-                        with open(layout_path_obj, 'r', encoding='utf-8') as f:
-                            layout_data = json.load(f)
-                    except Exception as e:
-                        print(f"Warning: Failed to load layout from {cp.layout_path}: {e}")
-                else:
-                    print(f"Warning: Layout file not found: {cp.layout_path}")
+            local_layout_path = self._resolve_path(cp.layout_path, project_id, "layouts")
+            if local_layout_path:
+                try:
+                    with open(local_layout_path, 'r', encoding='utf-8') as f:
+                        layout_data = json.load(f)
+                except Exception as e:
+                    print(f"Warning: Failed to load layout from {local_layout_path}: {e}")
+            else:
+                print(f"Warning: Layout file not found: {cp.layout_path} (resolved: {local_layout_path})")
             
             layouts.append({
                 'episode': cp.episode,
@@ -76,15 +104,15 @@ class ResultService:
             print(f"[DEBUG] 项目 {project_id} 找到best checkpoint: ep{checkpoint.episode}")
         
         layout_data = None
-        layout_path = checkpoint.layout_path
-        print(f"[DEBUG] checkpoint.layout_path = {layout_path}")
+        print(f"[DEBUG] checkpoint.layout_path (from DB) = {checkpoint.layout_path}")
         
-        if layout_path and Path(layout_path).exists():
-            with open(layout_path, 'r', encoding='utf-8') as f:
+        local_layout_path = self._resolve_path(checkpoint.layout_path, project_id, "layouts")
+        if local_layout_path:
+            with open(local_layout_path, 'r', encoding='utf-8') as f:
                 layout_data = json.load(f)
-            print(f"[DEBUG] 成功读取布局文件: {layout_path}")
+            print(f"[DEBUG] 成功读取布局文件: {local_layout_path}")
         else:
-            print(f"[WARN] 布局文件不存在或路径为空: {layout_path}")
+            print(f"[WARN] 布局文件不存在: DB路径={checkpoint.layout_path}")
         
         return {
             'episode': checkpoint.episode,
@@ -127,17 +155,21 @@ class ResultService:
         for cp in checkpoints:
             if cp.episode == episode:
                 layout_data = None
-                if cp.layout_path and Path(cp.layout_path).exists():
-                    with open(cp.layout_path, 'r') as f:
+                local_layout_path = self._resolve_path(cp.layout_path, project_id, "layouts")
+                if local_layout_path:
+                    with open(local_layout_path, 'r') as f:
                         layout_data = json.load(f)
+                
+                # 解析模型路径为本地路径
+                local_model_path = self._resolve_path(cp.model_path, project_id, "checkpoints")
                 
                 return {
                     'episode': cp.episode,
                     'reward': cp.reward,
                     'is_best': cp.is_best,
                     'created_at': cp.created_at.isoformat(),
-                    'model_path': cp.model_path,
-                    'layout_path': cp.layout_path,
+                    'model_path': str(local_model_path) if local_model_path else cp.model_path,
+                    'layout_path': str(local_layout_path) if local_layout_path else cp.layout_path,
                     'layout': layout_data,
                     'metrics': cp.metrics_snapshot,
                 }
