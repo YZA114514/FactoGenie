@@ -303,7 +303,22 @@ class LayoutEnvironment:
                 if u['id'] not in logistics_order:
                     sorted_units.append(u)
             functional_units = sorted_units
-        # else: "default" - 保持原始顺序
+        # else: "default" - 保持 layout config 中的原始顺序
+        
+        # 打印放置顺序（调试用）
+        order_name = {
+            "default": "配置文件顺序",
+            "size_desc": "面积降序",
+            "size_asc": "面积升序", 
+            "flow_desc": "物流强度降序",
+            "random": "随机顺序",
+            "process_flow": "工艺流程顺序",
+            "logistics_intensity": "物流强度顺序",
+        }.get(placement_order, placement_order)
+        print(f"[放置顺序] {order_name}:")
+        for i, u in enumerate(functional_units):
+            area = u['size'][0] * u['size'][1]
+            print(f"  {i+1}. {u['id']}: {u['size']} (面积: {area})")
         
         # 排序后需要重新计算物料流矩阵（因为索引变了）
         material_flow = loader.get_material_flow(functional_units)

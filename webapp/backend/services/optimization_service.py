@@ -41,33 +41,37 @@ class OptimizationService:
             'utilization': weights.get('utilization', 0.05),
         }
         
-        # 校准指标边界（如果需要）
-        metric_bounds = None
-        calibrate_episodes = training_params.get('calibrate_episodes', 0)
-        throughput_target = training_params.get('throughput_target', None)
+        # 指标边界处理
+        # 1. 优先使用已有的校准缓存（用户通过"强制更新指标边界"按钮产生）
+        # 2. 如果没有缓存，使用预设边界（基于SLP专家布局和随机摆放实验数据）
+        from calibration.calibrator import get_default_bounds
+        from calibration.bounds import BoundsManager
         
-        if calibrate_episodes > 0:
-            print(f"\n{'='*50}")
-            print(f"开始校准指标边界 ({calibrate_episodes} 个随机布局)...")
-            print(f"{'='*50}")
-            
-            from calibration.bounds import BoundsManager
-            bounds_manager = BoundsManager()
-            
-            bounds = bounds_manager.load_or_calibrate(
-                factory_config_path=factory_config_path,
-                layout_config_path=layout_config_path,
-                n_episodes=calibrate_episodes,
-                simulation_duration=training_params.get('simulation_duration', 2000),
-                throughput_target=throughput_target,
-            )
-            
-            # 提取边界用于环境
-            metric_bounds = bounds_manager.get_bounds_for_reward(
-                factory_config_path=factory_config_path,
-                layout_config_path=layout_config_path,
-            )
-            print(f"\n使用校准边界: {metric_bounds}")
+        calibrate_episodes = training_params.get('calibrate_episodes', 0)
+        
+        bounds_manager = BoundsManager()
+        cached_bounds = bounds_manager.load(factory_config_path, layout_config_path)
+        
+        if cached_bounds is not None:
+            # 使用已有的校准缓存
+            metric_bounds = {}
+            for metric in ['distance', 'logistics', 'throughput', 'utilization']:
+                if metric in cached_bounds:
+                    metric_bounds[metric] = (cached_bounds[metric]['best'], cached_bounds[metric]['worst'])
+            print(f"\n使用已有校准缓存 (hash: {cached_bounds.get('_meta', {}).get('config_hash', 'N/A')}):")
+            for k, v in metric_bounds.items():
+                print(f"  {k}: best={v[0]:.4f}, worst={v[1]:.4f}")
+        else:
+            # 使用默认预设边界
+            metric_bounds = get_default_bounds()
+            print(f"\n使用默认指标边界（基于SLP专家布局和随机实验）:")
+            print(f"  distance:    best={metric_bounds['distance'][0]:.4f}, worst={metric_bounds['distance'][1]:.4f}")
+            print(f"  logistics:   best={metric_bounds['logistics'][0]:.4f}, worst={metric_bounds['logistics'][1]:.4f}")
+            print(f"  throughput:  best={metric_bounds['throughput'][0]:.4f}, worst={metric_bounds['throughput'][1]:.4f}")
+            print(f"  utilization: best={metric_bounds['utilization'][0]:.4f}, worst={metric_bounds['utilization'][1]:.4f}")
+            if calibrate_episodes > 0:
+                print(f"\n提示: 您设置了校准回合数({calibrate_episodes})，但未点击'强制更新指标边界'。")
+                print(f"如需根据当前配置校准，请点击训练页面的'强制更新指标边界'按钮。")
         
         self._env = FactoryEnv(
             config_path=factory_config_path,
@@ -298,6 +302,34 @@ class OptimizationService:
             # 同步目标网络
             if frame_idx % sync_target == 0:
                 tgt_net.load_state_dict(net.state_dict())
+        
+        # 训练结束后，保存最终模型和布局
+        if episode_count > 0:
+            # 保存最终模型
+            final_model_path = self.project_dir / "checkpoints" / "model_final.pth"
+            final_model_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save({
+                'episode': episode_count,
+                'model_state_dict': net.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'reward': total_rewards[-1] if total_rewards else 0,
+            }, final_model_path)
+            
+            # 保存最终布局快照
+            final_layout_path_str = None
+            try:
+                layout_snapshot = getattr(agent, 'last_layout_snapshot', None)
+                if layout_snapshot:
+                    final_layout_path = layouts_dir / f"layout_ep{episode_count}.json"
+                    with open(final_layout_path, 'w', encoding='utf-8') as f:
+                        json.dump(layout_snapshot, f, indent=2, ensure_ascii=False)
+                    final_layout_path_str = str(final_layout_path)
+            except Exception as e:
+                print(f"保存最终布局快照失败: {e}")
+            
+            # 回调保存最终检查点
+            if checkpoint_callback:
+                checkpoint_callback(episode_count, total_rewards[-1] if total_rewards else 0, str(final_model_path), final_layout_path_str or "")
         
         return {
             'success': True,
