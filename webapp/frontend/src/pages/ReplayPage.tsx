@@ -254,11 +254,19 @@ const ReplayPage = () => {
             )}
           </Card>
 
-          <Card size="small" title="布局快照" style={{ marginTop: 16 }}>
+          <Card size="small" title={`回放进度 (步骤 ${currentStep}/${totalSteps})`} style={{ marginTop: 16 }}>
             {stepData?.layout?.placed_units && stepData.layout.placed_units.length > 0 ? (
-              <LayoutFlow key={`layout-${currentStep}`} layout={stepData.layout} />
+              <LayoutFlow key={`layout-${currentStep}`} layout={stepData.layout} height={280} />
             ) : (
-              <Text type="secondary">暂无布局数据</Text>
+              <Text type="secondary">暂无布局数据（点击"下一步"开始摆放）</Text>
+            )}
+          </Card>
+
+          <Card size="small" title="最终布局（训练保存）" style={{ marginTop: 16 }}>
+            {stepData?.saved_layout?.placed_units && stepData.saved_layout.placed_units.length > 0 ? (
+              <LayoutFlow key={`saved-layout-${form.getFieldValue('episode')}`} layout={stepData.saved_layout} height={280} />
+            ) : (
+              <Text type="secondary">暂无保存的布局数据</Text>
             )}
           </Card>
         </Col>
@@ -293,7 +301,7 @@ export default ReplayPage;
 
 // 布局快照ReactFlow组件（可交互、可拖拽、可缩放）
 // 完全复用ResultsPage的渲染逻辑
-const LayoutFlow = ({ layout }: { layout: any }) => {
+const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) => {
   if (!layout || !layout.placed_units || !Array.isArray(layout.placed_units) || layout.placed_units.length === 0) {
     return <Text type="secondary">暂无布局数据</Text>;
   }
@@ -404,12 +412,38 @@ const LayoutFlow = ({ layout }: { layout: any }) => {
     );
   };
 
-  const nodeTypes = { layoutNode: LayoutNode };
+  // 工厂边界节点
+  const BoundaryNode = ({ data }: any) => {
+    const { width, height, label } = data;
+    return (
+      <div style={{ width, height, position: "relative", pointerEvents: "none" }}>
+        <svg width={width} height={height} style={{ position: "absolute", top: 0, left: 0 }}>
+          <rect x={0} y={0} width={width} height={height} fill="none" stroke="#333" strokeWidth={3} strokeDasharray="8 4" />
+        </svg>
+        <div style={{ position: "absolute", bottom: -20, left: 0, fontSize: 11, color: "#666" }}>{label}</div>
+      </div>
+    );
+  };
+
+  const factoryBoundaryNode = {
+    id: "factory-boundary",
+    position: { x: 10, y: 10 },
+    data: { 
+      width: canvasW * scale, 
+      height: canvasH * scale,
+      label: `工厂 ${canvasW}×${canvasH}`
+    },
+    type: "boundaryNode",
+    draggable: false,
+    selectable: false,
+  };
+
+  const nodeTypes = { layoutNode: LayoutNode, boundaryNode: BoundaryNode };
 
   return (
-    <div style={{ height: 400, border: "1px solid #d9d9d9", background: "#fafafa" }}>
+    <div style={{ height, border: "1px solid #d9d9d9", background: "#fafafa" }}>
       <ReactFlow
-        nodes={nodes}
+        nodes={[factoryBoundaryNode, ...nodes]}
         edges={[]}
         nodeTypes={nodeTypes}
         fitView

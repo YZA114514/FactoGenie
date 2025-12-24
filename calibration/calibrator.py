@@ -15,6 +15,56 @@ from environment.factory_environment import LayoutEnvironment
 from simulation.interface import compute_metrics
 
 
+# 默认指标边界（基于椅子工厂配置的实验数据）
+# 
+# 计算方法：
+# - SLP专家布局指标作为15%分位线（即SLP在指标区间的15%位置）
+# - 574次随机摆放的最差值作为90%分位线
+# - 通过线性外推计算0%（最优）和100%（最差）边界
+#
+# 外推公式（对于越小越好的指标）：
+#   best = (6 * SLP_value - random_worst) / 5
+#   worst = (random_worst - 0.10 * best) / 0.90
+#
+# 数据来源：
+# - SLP: analysis/SLP_layout_metrics.csv (第9行/第2行)
+# - Random: analysis/random_run/summary.csv (574次随机摆放)
+#
+DEFAULT_METRIC_BOUNDS = {
+    'distance': {
+        # SLP=10.625 at 15%, random_worst=24.875 at 90%
+        # best = (6*10.625 - 24.875)/5 = 7.775
+        # worst = (24.875 - 0.1*7.775)/0.9 = 26.78
+        'best': 7.78,
+        'worst': 26.78,
+    },
+    'logistics': {
+        # 使用SLP第2行(7单元配置)与随机摆放(7单元)匹配
+        # SLP=232.0 at 15%, random_worst=829.0 at 90%
+        # best = (6*232 - 829)/5 = 112.6
+        # worst = (829 - 0.1*112.6)/0.9 = 908.6
+        'best': 112.6,
+        'worst': 908.6,
+    },
+    'throughput': {
+        # 吞吐量有物理上限(400)，SLP=400已达最优
+        # best固定为400（仿真最大产量）
+        # random_worst=121 at 90%: worst = 400 - (400-121)/0.9 * 0.1 = 369
+        # 实际计算: (400-121)/(400-worst)=0.9 → worst=90
+        'best': 400.0,
+        'worst': 90.0,
+    },
+    'utilization': {
+        # 使用SLP第2行(与随机摆放配置匹配)
+        # SLP=0.0608 at 15%, random_worst=0.0247 at 90%
+        # best = (6*0.0608 - 0.0247)/5 = 0.068
+        # worst = 0.068 - (0.068-0.0247)/0.9 = 0.020
+        'best': 0.068,
+        'worst': 0.020,
+    },
+}
+
+
 class Calibrator:
     """
     通过随机摆放校准指标边界
@@ -270,6 +320,21 @@ class Calibrator:
             print(f"  worst: {values['worst']:.4f}")
             print(f"  range: [{values['min']:.4f}, {values['max']:.4f}]")
             print(f"  mean:  {values['mean']:.4f} ± {values['std']:.4f}")
+
+
+def get_default_bounds() -> Dict[str, Tuple[float, float]]:
+    """
+    获取默认指标边界（不运行校准，直接使用预设值）
+    
+    Returns:
+        bounds: 字典 {metric_name: (best, worst)}
+    """
+    return {
+        'distance': (DEFAULT_METRIC_BOUNDS['distance']['best'], DEFAULT_METRIC_BOUNDS['distance']['worst']),
+        'logistics': (DEFAULT_METRIC_BOUNDS['logistics']['best'], DEFAULT_METRIC_BOUNDS['logistics']['worst']),
+        'throughput': (DEFAULT_METRIC_BOUNDS['throughput']['best'], DEFAULT_METRIC_BOUNDS['throughput']['worst']),
+        'utilization': (DEFAULT_METRIC_BOUNDS['utilization']['best'], DEFAULT_METRIC_BOUNDS['utilization']['worst']),
+    }
 
 
 def calibrate_from_config(
