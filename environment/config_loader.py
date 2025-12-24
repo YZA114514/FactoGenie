@@ -132,15 +132,8 @@ class ConfigLoader:
                     }
                     functional_units.append(unit)
         
-        # 按面积降序排序：大单元先放置，避免空间碎片化
-        # 这是装箱问题（bin packing）的经典优化策略
-        functional_units.sort(key=lambda u: u['size'][0] * u['size'][1], reverse=True)
-        
-        # 打印放置顺序（调试用）
-        print(f"[放置顺序] 按面积降序排列:")
-        for i, u in enumerate(functional_units):
-            area = u['size'][0] * u['size'][1]
-            print(f"  {i+1}. {u['id']}: {u['size']} (面积: {area})")
+        # 不在这里排序，保持 layout config 中的原始顺序
+        # 排序由 factory_environment.py 根据 placement_order 参数决定
         
         return functional_units
     

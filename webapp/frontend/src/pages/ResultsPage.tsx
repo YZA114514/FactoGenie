@@ -539,19 +539,50 @@ const BestLayoutPreview = ({ layout }: { layout: any }) => {
     });
   };
 
+  // 创建工厂边界节点
+  const canvasW = layout.factory?.length || layout.canvas?.width || 100;
+  const canvasH = layout.factory?.width || layout.canvas?.height || 100;
+  const scale = 360 / Math.max(canvasW, canvasH, 1);
+  
+  const factoryBoundaryNode = {
+    id: "factory-boundary",
+    position: { x: 10, y: 10 },
+    data: { 
+      width: canvasW * scale, 
+      height: canvasH * scale,
+      label: `工厂 ${canvasW}×${canvasH}`
+    },
+    type: "boundaryNode",
+    draggable: false,
+    selectable: false,
+  };
+
   return (
     <div style={{ height: 380, border: "1px solid #eee", position: "relative" }}>
       <ReactFlow
-        nodes={nodesRF()}
+        nodes={[factoryBoundaryNode, ...nodesRF()]}
         edges={[]}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        nodeTypes={{ layoutNode: LayoutNode }}
+        nodeTypes={{ layoutNode: LayoutNode, boundaryNode: BoundaryNode }}
       >
         <MiniMap />
         <Controls />
         <Background />
       </ReactFlow>
+    </div>
+  );
+};
+
+// 工厂边界节点
+const BoundaryNode = ({ data }: any) => {
+  const { width, height, label } = data;
+  return (
+    <div style={{ width, height, position: "relative", pointerEvents: "none" }}>
+      <svg width={width} height={height} style={{ position: "absolute", top: 0, left: 0 }}>
+        <rect x={0} y={0} width={width} height={height} fill="none" stroke="#333" strokeWidth={3} strokeDasharray="8 4" />
+      </svg>
+      <div style={{ position: "absolute", bottom: -20, left: 0, fontSize: 11, color: "#666" }}>{label}</div>
     </div>
   );
 };

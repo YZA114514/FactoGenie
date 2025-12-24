@@ -51,7 +51,7 @@ const DEFAULT_TRAINING_PARAMS = {
     throughput: 0.25,
     utilization: 0.05,
   },
-  placement_order: 'logistics_intensity',
+  placement_order: 'default',
 };
 
 const TrainingPage = () => {
@@ -665,7 +665,7 @@ const TrainingPage = () => {
             </Col>
             <Col span={6}>
               <Text>校准回合数</Text>
-              <Tooltip title="用于校准奖励指标边界的随机布局回合数">
+              <Tooltip title="点击'强制更新指标边界'时使用的随机布局回合数。默认使用预设边界（基于SLP专家布局），无需校准。">
                 <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
               </Tooltip>
               <InputNumber
@@ -683,9 +683,12 @@ const TrainingPage = () => {
                 value={trainingParams.placement_order}
                 onChange={(v) => updateParam('placement_order', v)}
                 options={[
-                  { label: "物流强度优先", value: "logistics_intensity" },
+                  { label: "默认顺序(配置文件)", value: "default" },
                   { label: "面积优先(降序)", value: "size_desc" },
-                  { label: "默认顺序", value: "default" },
+                  { label: "面积优先(升序)", value: "size_asc" },
+                  { label: "物流强度优先", value: "logistics_intensity" },
+                  { label: "工艺流程顺序", value: "process_flow" },
+                  { label: "随机顺序", value: "random" },
                 ]}
                 style={{ width: "100%", marginTop: 4 }}
               />
