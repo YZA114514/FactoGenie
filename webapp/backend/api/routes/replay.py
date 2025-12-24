@@ -54,11 +54,15 @@ async def start_replay(
     if not model_path:
         return {"code": 1002, "message": "Model path not found", "data": None}
     
+    # 获取训练时保存的布局文件路径（用于显示布局快照）
+    layout_json_path = checkpoint.get('layout_path')
+    
     success = replay_service.load_checkpoint(
         model_path=model_path,
         layout_config_path=layout_config_path,
         factory_config_path=factory_config_path,
         training_params=project.training_params,
+        layout_path=layout_json_path,  # 传递保存的布局文件路径
     )
     
     if not success:

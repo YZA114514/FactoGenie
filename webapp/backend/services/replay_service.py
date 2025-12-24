@@ -24,6 +24,8 @@ class ReplayService:
         self._placement_history = []
         self._state_history = []  # 保存历史状态以便回退
         self._initial_state = None  # 保存初始状态
+        self._saved_layout = None  # 保存的布局JSON数据（训练时保存的最终布局）
+        self._current_episode = None  # 当前加载的episode
     
     def load_checkpoint(
         self,
@@ -31,9 +33,17 @@ class ReplayService:
         layout_config_path: str,
         factory_config_path: str,
         training_params: Dict = None,
+        layout_path: str = None,  # 训练时保存的布局JSON路径
     ) -> bool:
         """
         加载检查点准备回放
+        
+        Args:
+            model_path: 模型文件路径
+            layout_config_path: 布局配置文件路径（初始配置）
+            factory_config_path: 工厂配置文件路径
+            training_params: 训练参数
+            layout_path: 训练时保存的布局JSON路径（用于显示布局快照）
         
         Returns:
             是否成功
@@ -75,6 +85,16 @@ class ReplayService:
             self._net.load_state_dict(checkpoint['model_state_dict'])
             self._net.eval()
             
+            # 加载训练时保存的布局JSON（用于显示布局快照）
+            self._saved_layout = None
+            if layout_path and Path(layout_path).exists():
+                try:
+                    with open(layout_path, 'r', encoding='utf-8') as f:
+                        self._saved_layout = json.load(f)
+                    print(f"[INFO] 已加载保存的布局: {layout_path}")
+                except Exception as e:
+                    print(f"[WARN] 加载布局文件失败: {layout_path}, 错误: {e}")
+            
             # 重置环境
             self._env.reset()
             self._current_step = 0
@@ -88,16 +108,22 @@ class ReplayService:
             
         except Exception as e:
             print(f"加载检查点失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def get_total_steps(self) -> int:
         """
-        获取总步数（功能单元数量，排除固定位置的单元）
+        获取总步数（可移动单元数量，排除固定位置的单元）
         
-        注意：
-        - fixed_obstacles 不会出现在 functional_units 中，所以不需要排除
-        - fixed_positions 中的单元会出现在 functional_units 中，但会在 reset 时自动放置，需要排除
+        优先从保存的布局JSON获取，以确保与回放进度一致
         """
+        # 优先使用保存布局的可移动单元数量
+        if self._saved_layout is not None:
+            saved_layout_data = self.get_saved_layout(max_step=None)
+            return saved_layout_data.get('total_movable_units', 0)
+        
+        # 回退到从环境获取
         if self._env is None:
             return 0
         env = self._env.env if hasattr(self._env, 'env') else self._env
@@ -168,8 +194,12 @@ class ReplayService:
         # 如果actual_action为None，则显示Q值最大的动作
         heatmap = self.get_heatmap(actual_action=actual_action)
         
-        # 获取当前布局状态
-        layout_state = self.get_layout_state()
+        # 获取回放进度布局：从保存的布局中截取前N个单元（N=当前步骤+1，因为步骤从0开始）
+        # 这样可以保证回放进度的最终结果与保存的布局一致
+        replay_layout = self.get_saved_layout(max_step=self._current_step + 1)
+        
+        # 同时返回保存的最终布局（用于对比）
+        saved_layout = self.get_saved_layout(max_step=None)
         
         # 获取已摆放单元列表（从环境获取，包含单元ID）
         placed_units_list = []
@@ -211,7 +241,8 @@ class ReplayService:
             'current_unit': current_unit,
             'placed_units': placed_units_list,  # 使用从环境获取的已摆放单元列表
             'heatmap': heatmap,
-            'layout': layout_state,  # 添加布局状态
+            'layout': replay_layout,  # 回放进度布局（从保存的布局截取前N个单元）
+            'saved_layout': saved_layout,  # 训练时保存的最终布局（用于对比）
         }
     
     def step_forward(self) -> Dict:
@@ -408,8 +439,92 @@ class ReplayService:
         if hasattr(env, 'current_unit_idx'):
             env.current_unit_idx = state_snapshot.get('current_unit_idx', 0)
     
+    def get_saved_layout(self, max_step: int = None) -> Dict:
+        """
+        获取训练时保存的布局（用于显示"布局快照"）
+        
+        Args:
+            max_step: 最大步骤数，只返回前max_step个单元。None表示返回全部。
+        
+        这是训练时该检查点实际保存的布局，不是回放模拟的结果
+        """
+        if self._saved_layout is None:
+            return {'error': 'No saved layout', 'placed_units': [], 'grid_size': [36, 18]}
+        
+        # 从保存的布局JSON中提取数据
+        factory = self._saved_layout.get('factory', {})
+        grid_size = [factory.get('length', 36), factory.get('width', 18)]
+        
+        all_units = []
+        fixed_units = []  # 固定位置的单元（始终显示）
+        movable_units = []  # 可移动的单元（按步骤显示）
+        
+        # 获取固定障碍物ID列表
+        constraints = self._saved_layout.get('constraints', {})
+        fixed_obstacle_ids = set(constraints.get('fixed_obstacles', []))
+        fixed_position_ids = set(constraints.get('fixed_positions', {}).keys() if isinstance(constraints.get('fixed_positions'), dict) else [])
+        
+        # 处理功能单元（注意：布局JSON使用 'fus' 而不是 'functional_units'）
+        fus = self._saved_layout.get('fus', self._saved_layout.get('functional_units', []))
+        for unit in fus:
+            unit_id = unit.get('id', unit.get('name', unit.get('label', '')))
+            unit_data = {
+                'unit_id': unit_id,
+                'x': unit.get('x', 0),
+                'y': unit.get('y', 0),
+                'angle': unit.get('angle', 0),
+                'width': unit.get('width', 4),
+                'length': unit.get('length', unit.get('height', 4)),  # 兼容 height 字段
+                'notch_length': unit.get('notch_length', 0),
+                'notch_width': unit.get('notch_width', 0),
+                'label': unit.get('label', unit.get('name', unit.get('id', ''))),
+                'typeLabel': 'FU',
+            }
+            # 固定位置的单元始终显示
+            if unit_id in fixed_position_ids:
+                fixed_units.append(unit_data)
+            else:
+                movable_units.append(unit_data)
+        
+        # 处理障碍物
+        for obs in self._saved_layout.get('obstacles', []):
+            obs_id = obs.get('id', obs.get('name', obs.get('label', '')))
+            obs_data = {
+                'unit_id': obs_id,
+                'x': obs.get('x', 0),
+                'y': obs.get('y', 0),
+                'angle': obs.get('angle', 0),
+                'width': obs.get('width', 4),
+                'length': obs.get('length', obs.get('height', 4)),  # 兼容 height 字段
+                'notch_length': obs.get('notch_length', 0),
+                'notch_width': obs.get('notch_width', 0),
+                'label': obs.get('label', obs.get('id', obs.get('name', ''))),
+                'typeLabel': 'Obstacle',
+            }
+            # 固定障碍物始终显示
+            if obs_id in fixed_obstacle_ids:
+                fixed_units.append(obs_data)
+            else:
+                movable_units.append(obs_data)
+        
+        # 根据max_step截取可移动单元
+        if max_step is not None:
+            # 只显示前max_step个可移动单元
+            displayed_movable = movable_units[:max_step]
+        else:
+            displayed_movable = movable_units
+        
+        # 合并固定单元和可移动单元
+        all_units = fixed_units + displayed_movable
+        
+        return {
+            'grid_size': grid_size,
+            'placed_units': all_units,
+            'total_movable_units': len(movable_units),
+        }
+    
     def get_layout_state(self) -> Dict:
-        """获取当前布局状态（用于可视化）"""
+        """获取当前回放状态的布局（用于显示回放进度）"""
         if self._env is None:
             return {'error': 'Not initialized'}
         
