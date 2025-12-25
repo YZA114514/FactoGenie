@@ -248,8 +248,10 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
     
     # 重塑 Q 值为 [rotation, y, x] 的形式
     # 假设动作编码为: action = rotation * (nx * ny) + y * nx + x
-    q_values_3d = np.full((num_rotations, ny, nx), -np.inf)
+    # 使用 None 代替 -np.inf，因为 JSON 不支持 Infinity
+    q_values_3d = np.full((num_rotations, ny, nx), None, dtype=object)
     
+    valid_actions_set = set(valid_actions)
     for action_idx, q_val in enumerate(q_values):
         rotation = action_idx // (nx * ny)
         remaining = action_idx % (nx * ny)
@@ -257,7 +259,9 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
         x = remaining % nx
         
         if rotation < num_rotations and y < ny and x < nx:
-            q_values_3d[rotation, y, x] = q_val
+            # 只有有效动作才填充Q值，无效动作保持为 None
+            if action_idx in valid_actions_set:
+                q_values_3d[rotation, y, x] = float(q_val)
     
     # 确定要显示的动作：如果提供了实际动作，使用它；否则使用Q值最大的动作
     if actual_action is not None and 0 <= actual_action < len(q_values):
@@ -291,6 +295,6 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
             'angle': display_rotation * 90,
             'q_value': float(q_values[display_action_idx]),
         },
-        'q_min': float(np.min(q_values[q_values > -np.inf])) if np.any(q_values > -np.inf) else 0,
+        'q_min': float(np.min(q_values[q_values > -1e9])) if np.any(q_values > -1e9) else 0,
         'q_max': float(np.max(q_values)),
     }

@@ -12,6 +12,7 @@ if str(backend_dir) not in sys.path:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import os
 
 from api.routes import config, training, results, calibration, replay
 from db.database import init_db
@@ -20,8 +21,11 @@ from db.database import init_db
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 启动时初始化数据库
-    init_db()
+    # 启动时初始化数据库（除非环境变量 FACTOGENIE_INIT_DB 为 false）
+    if os.environ.get("FACTOGENIE_INIT_DB", "true") == "true":
+        init_db()
+    else:
+        print("跳过数据库初始化 (FACTOGENIE_INIT_DB=false)")
     yield
     # 关闭时清理（如果需要）
 

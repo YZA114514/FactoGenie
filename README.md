@@ -42,7 +42,7 @@ python webapp/backend/run.py
 ```bash
 cd webapp/frontend
 npm install
-echo "VITE_API_BASE_URL=http://localhost:8001/api" > .env
+echo "VITE_API_BASE_URL=http://localhost:8002/api" > .env
 npm run dev
 # 在浏览器打开 http://localhost:5173
 ```

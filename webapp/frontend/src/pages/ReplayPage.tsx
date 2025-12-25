@@ -475,47 +475,81 @@ const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
   
   // 计算每个位置四个角度的最大Q值
   const maxQGrid: number[][] = [];
+  const bestAngleGrid: number[][] = []; // 记录每个位置的最佳角度
+
   for (let y = 0; y < gridH; y++) {
     const row: number[] = [];
+    const angleRow: number[] = [];
     for (let x = 0; x < gridW; x++) {
       let maxQ = -Infinity;
+      let bestAngle = 0;
+      let hasValid = false;
       for (let angle = 0; angle < 4 && angle < qValues.length; angle++) {
         const val = qValues[angle]?.[y]?.[x];
-        if (val !== undefined && val !== null && val > -1e9 && val > maxQ) {
-          maxQ = val;
+        // 后端现在返回 null 表示无效动作
+        if (val !== undefined && val !== null && val > -1e9) {
+          if (val > maxQ) {
+            maxQ = val;
+            bestAngle = angle * 90; // 转换为角度值
+          }
+          hasValid = true;
         }
       }
-      row.push(maxQ === -Infinity ? 0 : maxQ);
+      row.push(hasValid ? maxQ : -Infinity);
+      angleRow.push(hasValid ? bestAngle : -1);
     }
     maxQGrid.push(row);
+    bestAngleGrid.push(angleRow);
   }
 
-  // 转换为ECharts格式 [x, y, value]
-  const data: [number, number, number][] = [];
+  // 转换为ECharts格式 [x, y, value, angle]
+  const data: [number, number, number | null, number][] = [];
   let minVal = Infinity, maxVal = -Infinity;
   for (let y = 0; y < gridH; y++) {
     for (let x = 0; x < gridW; x++) {
       const v = maxQGrid[y][x];
-      data.push([x, y, v]);
-      if (v < minVal) minVal = v;
-      if (v > maxVal) maxVal = v;
+      const angle = bestAngleGrid[y][x];
+      // 如果是-Infinity（无效动作），设为null，不参与热力图颜色映射
+      const val = v === -Infinity ? null : v;
+      data.push([x, y, val, angle]);
+      
+      if (val !== null) {
+        if (val < minVal) minVal = val;
+        if (val > maxVal) maxVal = val;
+      }
     }
+  }
+  
+  // 如果全是无效值，给默认范围
+  if (minVal === Infinity) {
+    minVal = -1;
+    maxVal = 0;
   }
 
   // 选中的动作位置
   const selected = heatmap.selected_action;
 
-  // 图例范围：使用实际数据范围，但确保合理显示
-  // Q值理论范围取决于gamma和步数，实际通常在 [-1, 0] 附近
-  // 如果数据范围太窄（接近0），使用更宽的显示范围以便观察
-  const dataRange = maxVal - minVal;
-  const visualMapMin = dataRange < 0.01 ? -1 : Math.min(minVal, -1);
-  const visualMapMax = Math.max(maxVal, 0);
+  // 图例范围：使用实际数据范围，不再强制拉伸到[-1, 0]
+  // 确保 min != max 以避免渲染错误
+  let visualMapMin = minVal;
+  let visualMapMax = maxVal;
+  
+  if (Math.abs(visualMapMax - visualMapMin) < 1e-6) {
+      visualMapMin -= 0.1;
+      visualMapMax += 0.1;
+  }
 
   const option = {
     tooltip: {
       position: "top",
-      formatter: (params: any) => `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: ${params.data[2]?.toFixed(4)}`,
+      formatter: (params: any) => {
+        const val = params.data[2];
+        const angle = params.data[3];
+        if (val === null) {
+            return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: 无效`;
+        }
+        return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: ${val.toFixed(4)}<br/>角度: ${angle}°`;
+      },
     },
     grid: { top: 30, right: 60, bottom: 30, left: 30 },
     xAxis: { type: "category", data: Array.from({ length: gridW }, (_, i) => i), splitArea: { show: true } },
@@ -528,6 +562,8 @@ const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
       right: 0,
       top: "center",
       inRange: { color: ["#e6f7ff", "#1677ff", "#0050b3"] },
+      dimension: 2, // 显式指定使用第3列（Q值）进行颜色映射，避免使用第4列（角度）
+      formatter: (value: number) => value.toFixed(3), // 保留三位小数
     },
     series: [
       {
@@ -548,7 +584,6 @@ const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
       <ReactECharts option={option} style={{ height: 380 }} />
       <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 4 }}>
         Q值范围: [{minVal.toFixed(4)}, {maxVal.toFixed(4)}] 
-        {dataRange < 0.1 && <span style={{ color: '#fa8c16' }}> (Q值差异较小，可能训练轮次不足)</span>}
       </div>
     </div>
   );
