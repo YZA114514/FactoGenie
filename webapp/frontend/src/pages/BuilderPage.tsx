@@ -403,11 +403,19 @@ const BuilderPage = () => {
       return canvasSize;
     })();
     setCanvasSize(newCanvas.width, newCanvas.height);
-    const nodeMap = new Map<string, FactoryNode>();
-    nodes.forEach((n) => nodeMap.set(n.id, n));
+    
+    // 按照JSON中的原始顺序构建节点列表（保持fus在前，obstacles在后）
+    // 这对于训练时的放置顺序非常重要！
+    const existingNodeMap = new Map<string, FactoryNode>();
+    nodes.forEach((n) => existingNodeMap.set(n.id, n));
+    
+    // 按照JSON中的顺序构建节点列表
+    const orderedNodes: FactoryNode[] = [];
+    
+    // 先按顺序添加fus
     fus.forEach((f) => {
-      const existing = nodeMap.get(f.id);
-      nodeMap.set(f.id, {
+      const existing = existingNodeMap.get(f.id);
+      orderedNodes.push({
         id: f.id,
         type: "FU",
         dimensions: {
@@ -422,9 +430,11 @@ const BuilderPage = () => {
         initialInventory: existing?.initialInventory,
       });
     });
+    
+    // 再按顺序添加obstacles
     obstacles.forEach((o) => {
-      const existing = nodeMap.get(o.id);
-      nodeMap.set(o.id, {
+      const existing = existingNodeMap.get(o.id);
+      orderedNodes.push({
         id: o.id,
         type: "Obstacle",
         dimensions: {
@@ -438,10 +448,11 @@ const BuilderPage = () => {
         y: o.y ?? existing?.y,  // 保留原始坐标
       });
     });
+    
     const snapshot: FactoryStateSnapshot = {
       materials,
       transporters,
-      nodes: Array.from(nodeMap.values()),
+      nodes: orderedNodes,
       assemblies,
       routes,
       routeConfigs,

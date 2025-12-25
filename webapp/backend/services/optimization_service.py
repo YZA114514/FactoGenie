@@ -138,7 +138,8 @@ class OptimizationService:
         buffer_cls = PrioReplayBuffer if use_prior else ExperienceBuffer
         buffer = buffer_cls(buf_size=training_params.get('replay_size', 50000))
         
-        agent = Agent(self._env, buffer)
+        # 使用平均分配模式进行奖励分解（将最终奖励平均分配到每一步）
+        agent = Agent(self._env, buffer, reward_decompose='mean')
         
         # 训练参数
         total_steps = training_params.get('total_steps', 50000)

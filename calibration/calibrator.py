@@ -35,7 +35,7 @@ DEFAULT_METRIC_BOUNDS = {
         # SLP=10.625 at 15%, random_worst=24.875 at 90%
         # best = (6*10.625 - 24.875)/5 = 7.775
         # worst = (24.875 - 0.1*7.775)/0.9 = 26.78
-        'best': 9,
+        'best': 10,
         'worst': 29,
     },
     'logistics': {
