@@ -65,6 +65,11 @@ const BuilderPage = () => {
   const [routeForm] = Form.useForm<{ materialId: string; transporterId: string; batchSize: number }>();
   const [metaForm] = Form.useForm<{ finishedNode?: string; finishedMaterial?: string; monitors?: { node: string; material: string }[] }>();
   const nodeTypeWatch = Form.useWatch("type", nodeForm);
+  
+  // 监听metaForm的值变化，确保预览区域能正确显示
+  const finishedNodeWatch = Form.useWatch("finishedNode", metaForm);
+  const finishedMaterialWatch = Form.useWatch("finishedMaterial", metaForm);
+  const monitorsWatch = Form.useWatch("monitors", metaForm);
 
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
@@ -446,19 +451,78 @@ const BuilderPage = () => {
     
     // 读取并保存约束配置（包括 fixed_obstacles）
     const jsonConstraints = (data as any).constraints || {};
+    
+    // 将fixed_obstacles自动转换为fixed_positions（使用障碍物当前坐标）
+    const fixedObstacleIds = jsonConstraints.fixed_obstacles || [];
+    const autoFixedPositions: Array<{ unit_id: string; x: number; y: number; angle: number }> = [];
+    fixedObstacleIds.forEach((obsId: string) => {
+      // 在obstacles中查找该障碍物的位置
+      const obs = obstacles.find((o: any) => o.id === obsId);
+      if (obs) {
+        autoFixedPositions.push({
+          unit_id: obsId,
+          x: obs.x ?? 0,
+          y: obs.y ?? 0,
+          angle: obs.angle ?? 0,
+        });
+      }
+    });
+    // 合并JSON中已有的fixed_positions
+    const mergedFixedPositions = [
+      ...autoFixedPositions,
+      ...(jsonConstraints.fixed_positions || []).filter(
+        (fp: any) => !autoFixedPositions.some(afp => afp.unit_id === fp.unit_id)
+      ),
+    ];
+    
+    // 将default_wall_attach自动转换为wall_attach（根据单元位置猜测贴墙方向）
+    const defaultWallAttachIds = jsonConstraints.default_wall_attach || [];
+    const autoWallAttach: Array<{ unit_id: string; wall: "top" | "bottom" | "left" | "right" }> = [];
+    defaultWallAttachIds.forEach((unitId: string) => {
+      // 在fus或obstacles中查找该单元
+      const fu = fus.find((f: any) => f.id === unitId);
+      if (fu) {
+        // 根据位置猜测贴哪面墙
+        const x = fu.x ?? 0;
+        const y = fu.y ?? 0;
+        let wall: "top" | "bottom" | "left" | "right" = "left";
+        
+        // 判断最近的墙
+        const distLeft = x;
+        const distRight = newCanvas.width - x - (fu.width ?? 0);
+        const distBottom = y;
+        const distTop = newCanvas.height - y - (fu.height ?? fu.length ?? 0);
+        
+        const minDist = Math.min(distLeft, distRight, distBottom, distTop);
+        if (minDist === distLeft) wall = "left";
+        else if (minDist === distRight) wall = "right";
+        else if (minDist === distBottom) wall = "bottom";
+        else wall = "top";
+        
+        autoWallAttach.push({ unit_id: unitId, wall });
+      }
+    });
+    // 合并JSON中已有的wall_attach
+    const mergedWallAttach = [
+      ...autoWallAttach,
+      ...(jsonConstraints.wall_attach || []).filter(
+        (wa: any) => !autoWallAttach.some(awa => awa.unit_id === wa.unit_id)
+      ),
+    ];
+    
     setConstraints({
-      fixed_obstacles: jsonConstraints.fixed_obstacles || [],
+      fixed_obstacles: fixedObstacleIds,
       movable_obstacles: jsonConstraints.movable_obstacles || [],
-      default_wall_attach: jsonConstraints.default_wall_attach || [],
-      fixed_positions: jsonConstraints.fixed_positions || [],
+      default_wall_attach: defaultWallAttachIds,
+      fixed_positions: mergedFixedPositions,
       adjacency: jsonConstraints.adjacency || [],
-      wall_attach: jsonConstraints.wall_attach || [],
+      wall_attach: mergedWallAttach,
     });
     
     // 同步本地状态
-    setFixedPositions(jsonConstraints.fixed_positions || []);
+    setFixedPositions(mergedFixedPositions);
     setAdjacencyConstraints(jsonConstraints.adjacency || []);
-    setWallAttachConstraints(jsonConstraints.wall_attach || []);
+    setWallAttachConstraints(mergedWallAttach);
     
     setLastImport({ type: "layout", name: file.name });
     // 自动展开相关折叠面板
@@ -712,18 +776,18 @@ const BuilderPage = () => {
         <List
           size="small"
           header="监控点"
-          dataSource={metaForm.getFieldValue("monitors") || []}
+          dataSource={monitorsWatch || []}
           locale={{ emptyText: "无监控配置" }}
           renderItem={(m: any) => (
             <List.Item>
-              <Text code={m?.node || "-"}></Text> · 物料 {m?.material || "-"}
+              <Text code>{m?.node || "-"}</Text> · 物料 {m?.material || "-"}
             </List.Item>
           )}
         />
         <Divider />
         <Space direction="vertical">
-          <Text>成品节点：{metaForm.getFieldValue("finishedNode") || "-"}</Text>
-          <Text>成品物料：{metaForm.getFieldValue("finishedMaterial") || "-"}</Text>
+          <Text>成品节点：{finishedNodeWatch || "-"}</Text>
+          <Text>成品物料：{Array.isArray(finishedMaterialWatch) ? finishedMaterialWatch.join(", ") : finishedMaterialWatch || "-"}</Text>
         </Space>
       </Card>
 
@@ -801,6 +865,46 @@ const BuilderPage = () => {
         </Panel>
 
         <Panel header="节点构建（FU / Obstacle，支持缺角）" key="nodes">
+          {/* 已导入的节点列表 */}
+          {(fuNodes.length > 0 || obstacleNodes.length > 0) && (
+            <>
+              <Text strong>已导入的功能单元 (FU)：</Text>
+              <List
+                size="small"
+                bordered
+                style={{ marginBottom: 12, marginTop: 8 }}
+                dataSource={fuNodes}
+                locale={{ emptyText: "无功能单元" }}
+                renderItem={(n) => (
+                  <List.Item>
+                    <Text code>{n.id}</Text>
+                    <Text type="secondary"> · 尺寸 {n.dimensions.length}×{n.dimensions.width}</Text>
+                    {n.dimensions.notchLength ? <Text type="secondary"> · 缺角 {n.dimensions.notchLength}×{n.dimensions.notchWidth}</Text> : null}
+                    {n.x !== undefined && n.y !== undefined ? <Text type="secondary"> · 位置 ({n.x}, {n.y})</Text> : null}
+                    {n.angle !== undefined ? <Text type="secondary"> · 角度 {n.angle}°</Text> : null}
+                  </List.Item>
+                )}
+              />
+              <Text strong>已导入的障碍物 (Obstacle)：</Text>
+              <List
+                size="small"
+                bordered
+                style={{ marginBottom: 12, marginTop: 8 }}
+                dataSource={obstacleNodes}
+                locale={{ emptyText: "无障碍物" }}
+                renderItem={(n) => (
+                  <List.Item>
+                    <Text code>{n.id}</Text>
+                    <Text type="secondary"> · 尺寸 {n.dimensions.length}×{n.dimensions.width}</Text>
+                    {n.x !== undefined && n.y !== undefined ? <Text type="secondary"> · 位置 ({n.x}, {n.y})</Text> : null}
+                    {n.angle !== undefined ? <Text type="secondary"> · 角度 {n.angle}°</Text> : null}
+                    {constraints?.fixed_obstacles?.includes(n.id) ? <Tag color="red" style={{ marginLeft: 8 }}>固定</Tag> : <Tag color="green" style={{ marginLeft: 8 }}>可移动</Tag>}
+                  </List.Item>
+                )}
+              />
+              <Divider />
+            </>
+          )}
           <Form layout="vertical" form={nodeForm}>
             <Row gutter={16}>
               <Col span={8}>
@@ -890,6 +994,32 @@ const BuilderPage = () => {
         </Panel>
 
         <Panel header="工序配置（绑定节点）" key="assemblies">
+          {/* 已导入的工序列表 */}
+          {assemblies.length > 0 && (
+            <>
+              <Text strong>已导入的工序：</Text>
+              <List
+                size="small"
+                bordered
+                style={{ marginBottom: 12, marginTop: 8 }}
+                dataSource={assemblies}
+                locale={{ emptyText: "无工序" }}
+                renderItem={(a) => (
+                  <List.Item>
+                    <Text code>{a.nodeId}</Text>
+                    <Text type="secondary"> → 产出 </Text>
+                    <Text code>{a.output}</Text>
+                    <Text type="secondary"> × {a.outputCount || 1}</Text>
+                    <Text type="secondary"> · 加工时间 {a.processTime}s</Text>
+                    {a.inputs && Object.keys(a.inputs).length > 0 && (
+                      <Text type="secondary"> · 输入: {Object.entries(a.inputs).map(([m, q]) => `${m}×${q}`).join(", ")}</Text>
+                    )}
+                  </List.Item>
+                )}
+              />
+              <Divider />
+            </>
+          )}
           <Form layout="vertical" form={assemblyForm}>
             <Row gutter={16}>
               <Col span={8}>
