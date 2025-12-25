@@ -35,6 +35,9 @@ class ReplayService:
         training_params: Dict = None,
         layout_path: str = None,  # 训练时保存的布局JSON路径
     ) -> bool:
+        print(f"[DEBUG] load_checkpoint: model_path={model_path}")
+        print(f"[DEBUG] load_checkpoint: layout_config_path={layout_config_path}")
+        print(f"[DEBUG] load_checkpoint: layout_path={layout_path}")
         """
         加载检查点准备回放
         
@@ -104,6 +107,18 @@ class ReplayService:
             self._initial_state = self._get_env_state_snapshot()
             self._state_history.append(self._initial_state)
             
+            # 调试：打印环境和布局的单元数量
+            env = self._env.env if hasattr(self._env, 'env') else self._env
+            print(f"[DEBUG] Environment num_units: {getattr(env, 'num_units', 'N/A')}")
+            print(f"[DEBUG] Environment functional_units count: {len(getattr(env, 'functional_units', []))}")
+            if hasattr(env, 'functional_units'):
+                for i, u in enumerate(env.functional_units):
+                    print(f"[DEBUG]   Unit {i}: {u.get('id', 'N/A')}")
+            print(f"[DEBUG] get_total_steps(): {self.get_total_steps()}")
+            if self._saved_layout:
+                saved_data = self.get_saved_layout(max_step=None)
+                print(f"[DEBUG] Saved layout total_movable_units: {saved_data.get('total_movable_units', 'N/A')}")
+            
             return True
             
         except Exception as e:
@@ -158,41 +173,84 @@ class ReplayService:
             # 需要重新执行到目标步骤
             self._seek_to_step(step)
         
-        # 获取当前状态（确保状态是最新的）
-        state = self._get_current_state()
-        if state is None:
-            return {'error': 'Cannot get current state'}
-        
-        # 获取当前单元信息
-        current_unit = None
-        if hasattr(self._env, 'env'):
-            env = self._env.env
-            if hasattr(env, 'current_unit_idx') and env.current_unit_idx < len(getattr(env, 'functional_units', [])):
-                current_unit = env.functional_units[env.current_unit_idx]
-        
-        # 获取当前步骤实际执行的动作（用于显示在热力图中）
-        # 逻辑说明：
-        # - placement_history[i] 记录的是步骤i执行的动作
-        # - 执行步骤i的动作后，_current_step变成i+1
-        # - 如果当前在步骤N（_current_step=N），说明已经执行了步骤0到N-1的动作
-        # - 想要查看步骤N的热力图，应该显示"在步骤N的状态下，模型会选择什么动作"
-        # - 如果步骤N已经执行了动作，应该显示步骤N实际执行的动作（placement_history[N]）
-        # - 如果步骤N还没有执行动作，显示Q值最大的动作
-        actual_action = None
-        if self._placement_history and len(self._placement_history) > 0:
-            # 检查当前步骤是否已经执行了动作
-            # placement_history的长度表示已执行的步骤数
-            # 如果_current_step < len(placement_history)，说明当前步骤已经执行了动作
-            if self._current_step < len(self._placement_history):
-                # 当前步骤已经执行了动作，显示实际执行的动作
-                actual_action = self._placement_history[self._current_step].get('action')
-                print(f"[DEBUG] 步骤 {self._current_step} 已执行动作: {actual_action}")
+        # 如果有保存的布局，从保存的布局中获取当前单元信息
+        if self._saved_layout is not None:
+            # 从保存的布局中获取当前步骤对应的单元
+            saved_data = self.get_saved_layout(max_step=None)
+            movable_units = []
+            
+            # 提取可移动单元（排除固定位置和固定障碍物）
+            constraints = self._saved_layout.get('constraints', {})
+            fixed_position_ids = set(constraints.get('fixed_positions', {}).keys() if isinstance(constraints.get('fixed_positions'), dict) else [])
+            fixed_obstacle_ids = set(constraints.get('fixed_obstacles', []))
+            
+            fus = self._saved_layout.get('fus', [])
+            for unit in fus:
+                unit_id = unit.get('id', '')
+                if unit_id not in fixed_position_ids:
+                    movable_units.append(unit)
+            
+            obstacles = self._saved_layout.get('obstacles', [])
+            for obs in obstacles:
+                obs_id = obs.get('id', '')
+                if obs_id not in fixed_obstacle_ids:
+                    movable_units.append(obs)
+            
+            # 当前步骤对应的单元（步骤从0开始，所以_current_step就是当前要放置的单元索引）
+            current_unit = None
+            if 0 <= self._current_step < len(movable_units):
+                unit_data = movable_units[self._current_step]
+                # 转换为环境格式
+                current_unit = {
+                    'id': unit_data.get('id', ''),
+                    'name': unit_data.get('id', ''),
+                    'size': (unit_data.get('length', 0), unit_data.get('width', 0)),
+                    'is_obstacle': unit_data.get('id', '') in [o.get('id', '') for o in obstacles],
+                }
+            
+            # 对于热力图，需要同步环境状态到当前步骤
+            # 这样热力图才能正确显示当前步骤的Q值
+            if self._env is not None and self._net is not None:
+                self._sync_env_to_step(self._current_step)
+                state = self._get_current_state()
             else:
-                print(f"[DEBUG] 步骤 {self._current_step} 尚未执行动作，显示Q值最大的动作")
+                state = None
+        else:
+            # 没有保存布局时，从环境获取
+            state = self._get_current_state()
+            if state is None:
+                return {'error': 'Cannot get current state'}
+            
+            # 获取当前单元信息
+            current_unit = None
+            if hasattr(self._env, 'env'):
+                env = self._env.env
+                if hasattr(env, 'current_unit_idx') and env.current_unit_idx < len(getattr(env, 'functional_units', [])):
+                    current_unit = env.functional_units[env.current_unit_idx]
+        
+        # 获取当前步骤实际执行的动作（从保存的布局中获取训练时的真实位置）
+        # 这样可以在热力图中显示训练时选择的实际位置
+        actual_action = None
+        if self._saved_layout is not None and current_unit is not None:
+            # 从保存的布局中查找当前单元的位置和角度
+            unit_id = current_unit.get('id', current_unit.get('name', ''))
+            saved_unit = self._find_unit_in_saved_layout(unit_id)
+            if saved_unit:
+                # 将位置和角度转换为action_idx
+                actual_action = self._position_to_action(
+                    saved_unit.get('x', 0),
+                    saved_unit.get('y', 0),
+                    saved_unit.get('angle', 0)
+                )
+                print(f"[DEBUG] 步骤 {self._current_step} 训练时的动作: 位置({saved_unit.get('x')}, {saved_unit.get('y')}), 角度{saved_unit.get('angle')}°, action_idx={actual_action}")
         
         # 获取热力图（每次都重新计算，确保是最新的，并传入实际执行的动作）
         # 如果actual_action为None，则显示Q值最大的动作
-        heatmap = self.get_heatmap(actual_action=actual_action)
+        # 注意：在保存布局模式下，环境状态已同步，可以正确计算热力图
+        if state is not None and self._net is not None:
+            heatmap = self.get_heatmap(actual_action=actual_action)
+        else:
+            heatmap = {'error': 'Cannot compute heatmap: state or network not available'}
         
         # 获取回放进度布局：从保存的布局中截取前N个单元（N=当前步骤+1，因为步骤从0开始）
         # 这样可以保证回放进度的最终结果与保存的布局一致
@@ -201,9 +259,15 @@ class ReplayService:
         # 同时返回保存的最终布局（用于对比）
         saved_layout = self.get_saved_layout(max_step=None)
         
-        # 获取已摆放单元列表（从环境获取，包含单元ID）
+        # 获取已摆放单元列表
         placed_units_list = []
-        if hasattr(self._env, 'env'):
+        
+        if self._saved_layout is not None:
+            # 从保存的布局中获取已摆放单元（前current_step个）
+            saved_data = self.get_saved_layout(max_step=self._current_step)
+            placed_units_list = saved_data.get('placed_units', [])
+        elif hasattr(self._env, 'env'):
+            # 从环境获取已摆放单元
             env = self._env.env
             functional_units = getattr(env, 'functional_units', [])
             placed_units_env = getattr(env, 'placed_units', [])
@@ -247,16 +311,37 @@ class ReplayService:
     
     def step_forward(self) -> Dict:
         """
-        执行一步（使用模型选择动作）
+        执行一步回放
+        
+        回放模式有两种策略：
+        1. 如果有保存的布局，直接基于保存布局前进（推荐，保证与训练结果一致）
+        2. 如果没有保存布局，使用模型重新选择动作
         
         Returns:
             步骤结果
         """
+        total_steps = self.get_total_steps()
+        print(f"[DEBUG] step_forward: current_step={self._current_step}, total_steps={total_steps}")
+        
+        if self._current_step >= total_steps:
+            print(f"[DEBUG] step_forward: Done! current_step >= total_steps")
+            return {'done': True}
+        
+        # 策略1: 如果有保存的布局，直接前进并同步环境状态
+        if self._saved_layout is not None:
+            self._current_step += 1
+            # 同步环境状态以便热力图和步骤详情正确显示
+            if self._env is not None:
+                self._sync_env_to_step(self._current_step)
+            print(f"[DEBUG] step_forward: 使用保存布局模式，前进到步骤 {self._current_step}")
+            return {
+                'step': self._current_step,
+                'done': self._current_step >= total_steps,
+            }
+        
+        # 策略2: 没有保存布局时，使用模型选择动作（原逻辑）
         if self._env is None or self._net is None:
             return {'error': 'Not initialized'}
-        
-        if self._current_step >= self.get_total_steps():
-            return {'done': True}
         
         # 获取当前状态
         state = self._get_current_state()
@@ -269,7 +354,14 @@ class ReplayService:
         valid_actions = self._env.get_valid_actions()
         
         if not valid_actions:
-            return {'error': 'No valid actions', 'done': True}
+            print(f"[DEBUG] step_forward: No valid actions at step {self._current_step}")
+            # 即使环境没有有效动作，也允许前进（基于保存的布局）
+            self._current_step += 1
+            return {
+                'step': self._current_step,
+                'done': self._current_step >= total_steps,
+                'warning': 'No valid actions in environment, using saved layout'
+            }
         
         # 在有效动作中选择最佳
         valid_q = [(a, q_values[a]) for a in valid_actions]
@@ -282,7 +374,7 @@ class ReplayService:
         action_dict = None
         if hasattr(self._env, '_action_idx_to_dict'):
             action_dict = self._env._action_idx_to_dict(best_action)
-        print(f"[DEBUG] 步骤 {self._current_step} 执行动作: idx={best_action}, dict={action_dict}, reward={reward}")
+        print(f"[DEBUG] 步骤 {self._current_step} 执行动作: idx={best_action}, dict={action_dict}, reward={reward}, done={done}")
         
         # 记录放置历史
         self._placement_history.append({
@@ -301,23 +393,35 @@ class ReplayService:
             'step': self._current_step,
             'action': best_action,
             'reward': reward,
-            'done': done,
+            'done': self._current_step >= total_steps,
         }
     
     def step_backward(self) -> Dict:
         """
-        回退一步（通过重新执行到上一步）
+        回退一步
         
         Returns:
             步骤结果
         """
-        if self._env is None or self._net is None:
-            return {'error': 'Not initialized'}
-        
         if self._current_step <= 0:
             return {'error': 'Already at step 0', 'step': 0}
         
-        # 通过跳转到上一步来实现回退
+        # 如果有保存的布局，直接回退并同步环境状态
+        if self._saved_layout is not None:
+            self._current_step -= 1
+            # 同步环境状态以便热力图和步骤详情正确显示
+            if self._env is not None:
+                self._sync_env_to_step(self._current_step)
+            print(f"[DEBUG] step_backward: 使用保存布局模式，回退到步骤 {self._current_step}")
+            return {
+                'step': self._current_step,
+                'message': 'Stepped backward',
+            }
+        
+        # 没有保存布局时，通过跳转到上一步来实现回退
+        if self._env is None or self._net is None:
+            return {'error': 'Not initialized'}
+        
         target_step = self._current_step - 1
         self._seek_to_step(target_step)
         
@@ -328,19 +432,31 @@ class ReplayService:
     
     def _seek_to_step(self, target_step: int):
         """跳转到指定步骤"""
+        total_steps = self.get_total_steps()
+        
         if target_step < 0:
             target_step = 0
-        if target_step > self.get_total_steps():
-            target_step = self.get_total_steps()
+        if target_step > total_steps:
+            target_step = total_steps
         
         # 如果已经在目标步骤，不需要操作
         if target_step == self._current_step:
             return
         
+        # 如果有保存的布局，直接跳转并同步环境状态
+        if self._saved_layout is not None:
+            self._current_step = target_step
+            # 同步环境状态以便热力图和步骤详情正确显示
+            if self._env is not None:
+                self._sync_env_to_step(target_step)
+            print(f"[DEBUG] _seek_to_step: 使用保存布局模式，跳转到步骤 {target_step} 并同步环境状态")
+            return
+        
         # 如果目标步骤小于当前步骤，需要重置并重新执行
         if target_step < self._current_step:
             # 重置环境
-            self._env.reset()
+            if self._env is not None:
+                self._env.reset()
             self._current_step = 0
             self._placement_history = []
             self._state_history = []
@@ -350,7 +466,8 @@ class ReplayService:
         # 执行到目标步骤（从当前步骤继续）
         while self._current_step < target_step:
             result = self.step_forward()
-            if result.get('done') or result.get('error'):
+            if result.get('error'):
+                print(f"[DEBUG] _seek_to_step: Error at step {self._current_step}, stopping")
                 break
     
     def _get_current_state(self):
@@ -364,6 +481,57 @@ class ReplayService:
                 print(f"[DEBUG] 获取状态: current_step={self._current_step}, current_unit_idx={self._env.env.current_unit_idx}, placed_units={len(getattr(self._env.env, 'placed_units', []))}")
             return state_array
         return None
+    
+    def _find_unit_in_saved_layout(self, unit_id: str) -> Optional[Dict]:
+        """
+        在保存的布局中查找指定ID的单元
+        
+        Args:
+            unit_id: 单元ID
+            
+        Returns:
+            单元数据（包含x, y, angle等）或None
+        """
+        if self._saved_layout is None:
+            return None
+        
+        # 在fus中查找
+        for unit in self._saved_layout.get('fus', []):
+            if unit.get('id') == unit_id:
+                return unit
+        
+        # 在obstacles中查找
+        for obs in self._saved_layout.get('obstacles', []):
+            if obs.get('id') == unit_id:
+                return obs
+        
+        return None
+    
+    def _position_to_action(self, x: int, y: int, angle: int) -> int:
+        """
+        将位置和角度转换为动作索引
+        
+        Args:
+            x: x坐标
+            y: y坐标  
+            angle: 角度（0, 90, 180, 270）
+            
+        Returns:
+            动作索引
+        """
+        if self._env is None:
+            return 0
+        
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        nx = getattr(env, 'grid_cols', 36)
+        ny = getattr(env, 'grid_rows', 18)
+        
+        # 角度转rotation索引（0, 90, 180, 270 -> 0, 1, 2, 3）
+        rotation = (angle // 90) % 4
+        
+        # action = rotation * (nx * ny) + y * nx + x
+        action_idx = rotation * (nx * ny) + y * nx + x
+        return action_idx
     
     def get_heatmap(self, actual_action=None) -> Dict:
         """
@@ -385,6 +553,94 @@ class ReplayService:
         from agent.agent import get_q_values_heatmap
         
         return get_q_values_heatmap(self._net, self._env, state, actual_action=actual_action)
+    
+    def _sync_env_to_step(self, target_step: int):
+        """
+        将环境状态同步到指定步骤（基于保存的布局）
+        
+        这个方法用于在保存布局模式下，让环境状态与当前步骤保持一致，
+        以便正确计算热力图和获取当前单元信息。
+        
+        Args:
+            target_step: 目标步骤（0-based）
+        """
+        if self._env is None or self._saved_layout is None:
+            return
+        
+        # 重置环境
+        self._env.reset()
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        
+        # 从保存的布局中提取可移动单元
+        constraints = self._saved_layout.get('constraints', {})
+        fixed_position_ids = set(constraints.get('fixed_positions', {}).keys() if isinstance(constraints.get('fixed_positions'), dict) else [])
+        fixed_obstacle_ids = set(constraints.get('fixed_obstacles', []))
+        
+        movable_units_data = []
+        
+        # 提取功能单元
+        fus = self._saved_layout.get('fus', [])
+        for unit in fus:
+            unit_id = unit.get('id', '')
+            if unit_id not in fixed_position_ids:
+                movable_units_data.append({
+                    'id': unit_id,
+                    'x': unit.get('x', 0),
+                    'y': unit.get('y', 0),
+                    'angle': unit.get('angle', 0),
+                    'is_obstacle': False,
+                })
+        
+        # 提取可移动障碍物
+        obstacles = self._saved_layout.get('obstacles', [])
+        for obs in obstacles:
+            obs_id = obs.get('id', '')
+            if obs_id not in fixed_obstacle_ids:
+                movable_units_data.append({
+                    'id': obs_id,
+                    'x': obs.get('x', 0),
+                    'y': obs.get('y', 0),
+                    'angle': obs.get('angle', 0),
+                    'is_obstacle': True,
+                })
+        
+        # 将前target_step个单元放置到环境中
+        functional_units = getattr(env, 'functional_units', [])
+        id_to_idx = {u.get('id', u.get('name', '')): i for i, u in enumerate(functional_units)}
+        
+        for i in range(min(target_step, len(movable_units_data))):
+            unit_data = movable_units_data[i]
+            unit_id = unit_data['id']
+            
+            if unit_id in id_to_idx:
+                unit_idx = id_to_idx[unit_id]
+                x = unit_data['x']
+                y = unit_data['y']
+                rotation = unit_data['angle']
+                
+                # 将动作转换为字典格式并执行
+                action_dict = {'x': x, 'y': y, 'rotation': rotation}
+                try:
+                    # 直接调用环境的step方法
+                    env.step(action_dict)
+                except Exception as e:
+                    print(f"[WARN] 同步环境状态时放置单元 {unit_id} 失败: {e}")
+                    # 如果step失败，尝试直接更新placed_units（不推荐，但作为fallback）
+                    if hasattr(env, 'placed_units'):
+                        env.placed_units.append((unit_idx, x, y, rotation))
+                        # 更新布局网格
+                        if hasattr(env, '_place_unit'):
+                            unit = functional_units[unit_idx]
+                            env._place_unit(unit, x, y, rotation)
+        
+        # 更新current_unit_idx到目标步骤
+        if hasattr(env, 'current_unit_idx'):
+            env.current_unit_idx = target_step
+            # 跳过固定位置的单元
+            if hasattr(env, '_skip_fixed_units'):
+                env._skip_fixed_units()
+        
+        print(f"[DEBUG] _sync_env_to_step: 已同步环境到步骤 {target_step}")
     
     def _get_env_state_snapshot(self) -> Dict:
         """获取环境状态的快照（用于回退）"""

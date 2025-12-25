@@ -454,11 +454,11 @@ def train(params):
                 samples, batch_indices, weights = buffer.sample(params.batch_size)
                 states, actions, rewards, dones, next_states = zip(*samples)
                 batch = (
-                    np.array(states, copy=False),
-                    np.array(actions, copy=False),
+                    np.asarray(states),
+                    np.asarray(actions),
                     np.array(rewards, dtype=np.float32),
                     np.array(dones, dtype=bool),
-                    np.array(next_states, copy=False),
+                    np.asarray(next_states),
                 )
                 weights = np.array(weights, dtype=np.float32)
 
@@ -668,11 +668,11 @@ def train_with_callbacks(
             samples, batch_indices, weights = buffer.sample(params.batch_size)
             states, actions, rewards_batch, dones, next_states = zip(*samples)
             batch = (
-                np.array(states, copy=False),
-                np.array(actions, copy=False),
+                np.asarray(states),
+                np.asarray(actions),
                 np.array(rewards_batch, dtype=np.float32),
                 np.array(dones, dtype=bool),
-                np.array(next_states, copy=False),
+                np.asarray(next_states),
             )
             weights = np.array(weights, dtype=np.float32)
             

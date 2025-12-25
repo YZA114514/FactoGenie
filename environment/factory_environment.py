@@ -622,9 +622,9 @@ class LayoutEnvironment:
             if needs_wall:
                 print(f"   该单元需要贴墙，可能限制了有效位置")
             
-            print(f"   ⚠️ 提前终止，不进入仿真，直接给予惩罚奖励: -1.0")
+            print(f"   ⚠️ 提前终止，不进入仿真，直接给予惩罚奖励: -1.5")
             
-            reward = -1.0  # 最大惩罚，但保持在有效范围内
+            reward = -1.5  # 没有有效动作的惩罚
             done = True
             
             info = {
