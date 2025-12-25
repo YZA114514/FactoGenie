@@ -35,16 +35,16 @@ DEFAULT_METRIC_BOUNDS = {
         # SLP=10.625 at 15%, random_worst=24.875 at 90%
         # best = (6*10.625 - 24.875)/5 = 7.775
         # worst = (24.875 - 0.1*7.775)/0.9 = 26.78
-        'best': 7.78,
-        'worst': 26.78,
+        'best': 9,
+        'worst': 29,
     },
     'logistics': {
         # 使用SLP第2行(7单元配置)与随机摆放(7单元)匹配
         # SLP=232.0 at 15%, random_worst=829.0 at 90%
         # best = (6*232 - 829)/5 = 112.6
         # worst = (829 - 0.1*112.6)/0.9 = 908.6
-        'best': 112.6,
-        'worst': 908.6,
+        'best': 3800,
+        'worst': 13000,
     },
     'throughput': {
         # 吞吐量有物理上限(400)，SLP=400已达最优
@@ -52,15 +52,15 @@ DEFAULT_METRIC_BOUNDS = {
         # random_worst=121 at 90%: worst = 400 - (400-121)/0.9 * 0.1 = 369
         # 实际计算: (400-121)/(400-worst)=0.9 → worst=90
         'best': 400.0,
-        'worst': 90.0,
+        'worst': 120.0,
     },
     'utilization': {
         # 使用SLP第2行(与随机摆放配置匹配)
         # SLP=0.0608 at 15%, random_worst=0.0247 at 90%
         # best = (6*0.0608 - 0.0247)/5 = 0.068
         # worst = 0.068 - (0.068-0.0247)/0.9 = 0.020
-        'best': 0.068,
-        'worst': 0.020,
+        'best': 0.8,
+        'worst': 0.3,
     },
 }
 

@@ -94,7 +94,7 @@ class Agent:
 
         # 贪心选择
         state_v = torch.tensor(
-            np.array([self.state], copy=False), dtype=torch.float32, device=device
+            np.asarray([self.state]), dtype=torch.float32, device=device
         )
         q_vals_v = net(state_v)
         
@@ -166,9 +166,9 @@ class Agent:
 def calc_loss_prio(batch, weights, net, tgt_net, device="cpu", double_dqn=True):
     states, actions, rewards, dones, next_states = batch
 
-    states_v = torch.tensor(np.array(states, copy=False), dtype=torch.float32, device=device)
+    states_v = torch.tensor(np.asarray(states), dtype=torch.float32, device=device)
     next_states_v = torch.tensor(
-        np.array(next_states, copy=False), dtype=torch.float32, device=device
+        np.asarray(next_states), dtype=torch.float32, device=device
     )
     actions_v = torch.tensor(actions, dtype=torch.int64, device=device)
     rewards_v = torch.tensor(rewards, dtype=torch.float32, device=device)
@@ -210,7 +210,7 @@ def get_q_values_for_state(net, state, device="cpu"):
     net.eval()
     with torch.no_grad():
         state_v = torch.tensor(
-            np.array([state], copy=False), dtype=torch.float32, device=device
+            np.asarray([state]), dtype=torch.float32, device=device
         )
         q_vals = net(state_v).squeeze().cpu().numpy()
     return q_vals
