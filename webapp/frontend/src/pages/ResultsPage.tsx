@@ -272,7 +272,7 @@ const ResultsPage = () => {
                 <Tooltip />
                 <Legend />
                 <Line yAxisId="left" type="monotone" dataKey="reward" stroke="#1677ff" name="Reward" dot={false} />
-                <Line yAxisId="left" type="monotone" dataKey="mean_reward" stroke="#52c41a" name="Mean Reward (100)" dot={false} strokeWidth={2} />
+                <Line yAxisId="left" type="monotone" dataKey="mean_reward" stroke="#52c41a" name="Mean Reward (200)" dot={false} strokeWidth={2} />
                 <Line yAxisId="right" type="monotone" dataKey="epsilon" stroke="#faad14" name="Epsilon" dot={false} strokeDasharray="5 5" />
               </LineChart>
             </ResponsiveContainer>

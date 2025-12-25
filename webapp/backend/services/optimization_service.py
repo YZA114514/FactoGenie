@@ -122,12 +122,14 @@ class OptimizationService:
             self._env.observation_space.shape,
             self._env.action_space.n,
             use_noisy=use_noisy,
+            sigma_init=0.5,
         ).to(device)
         
         tgt_net = model_cls(
             self._env.observation_space.shape,
             self._env.action_space.n,
             use_noisy=use_noisy,
+            sigma_init=0.5,
         ).to(device)
         tgt_net.load_state_dict(net.state_dict())
         
@@ -163,7 +165,7 @@ class OptimizationService:
         # 写入 CSV 头
         with open(rewards_csv, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['episode', 'step', 'reward', 'mean_reward_100', 'epsilon'])
+            writer.writerow(['episode', 'step', 'reward', 'mean_reward_200', 'epsilon'])
         
         with open(losses_csv, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -200,7 +202,7 @@ class OptimizationService:
             if reward is not None:
                 total_rewards.append(reward)
                 episode_count += 1
-                mean_reward = np.mean(total_rewards[-100:])
+                mean_reward = np.mean(total_rewards[-200:])
                 
                 # 计算预计剩余时间
                 elapsed = time.time() - start_time
@@ -252,15 +254,15 @@ class OptimizationService:
                     if checkpoint_callback:
                         checkpoint_callback(episode_count, reward, str(model_path), layout_path_str or "")
                 
-                # 最佳模型和布局（使用单个episode的reward，而不是mean_reward）
-                if reward > best_reward:
-                    best_reward = reward
+                # 最佳模型和布局（使用 mean_reward）
+                if mean_reward > best_reward:
+                    best_reward = mean_reward
                     best_path = self.project_dir / "checkpoints" / "model_best.pth"
                     best_path.parent.mkdir(parents=True, exist_ok=True)
                     torch.save({
                         'episode': episode_count,
                         'model_state_dict': net.state_dict(),
-                        'reward': reward,
+                        'reward': mean_reward,
                     }, best_path)
                     
                     # 保存最佳布局快照（从 agent 获取）
@@ -275,6 +277,12 @@ class OptimizationService:
             
             # 训练
             if len(buffer) >= replay_start:
+                buffer.update_beta(frame_idx)
+                
+                if use_noisy:
+                    net.reset_noise()
+                    tgt_net.reset_noise()
+
                 optimizer.zero_grad()
                 samples, batch_indices, weights = buffer.sample(batch_size)
                 

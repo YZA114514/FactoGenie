@@ -138,7 +138,8 @@ async def get_rewards_csv(
                     episode = int(row.get('episode', 0))
                     step = int(row.get('step', 0))
                     reward = float(row.get('reward', 0))
-                    mean_reward = float(row.get('mean_reward_100', 0))
+                    # 兼容新旧字段名 (mean_reward_200 vs mean_reward_100)
+                    mean_reward = float(row.get('mean_reward_200', row.get('mean_reward_100', 0)))
                     epsilon = float(row.get('epsilon', 0))
                     values.append({
                         'episode': episode,
