@@ -183,9 +183,11 @@ class OptimizationService:
         episode_count = 0
         start_time = time.time()
         
+        was_stopped = False
         for frame_idx in range(1, total_steps + 1):
             # 检查停止信号
             if self.stop_event.is_set():
+                was_stopped = True
                 break
             
             # 更新 epsilon
@@ -342,6 +344,7 @@ class OptimizationService:
         
         return {
             'success': True,
+            'stopped': was_stopped,  # 标记是否被手动停止
             'total_episodes': episode_count,
             'best_reward': best_reward,
             'final_reward': total_rewards[-1] if total_rewards else 0,

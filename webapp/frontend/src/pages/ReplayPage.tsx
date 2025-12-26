@@ -215,21 +215,34 @@ const ReplayPage = () => {
         </Card>
       )}
 
-      {!info && <Alert type="info" showIcon message="请选择项目和检查点，然后点击「启动回放」" style={{ marginBottom: 16 }} />}
+      {!info && <Alert type="info" showIcon message="请选择项目和检查点，然后点击「启动回放」开始实时推理回放" style={{ marginBottom: 16 }} />}
 
       <Row gutter={16}>
-        <Col span={10}>
-          <Card size="small" title="当前步骤详情">
+        {/* 左侧：实时推理区域 */}
+        <Col span={11}>
+          {/* 当前步骤详情 */}
+          <Card 
+            size="small" 
+            title={
+              <Space>
+                <span style={{ color: '#1677ff', fontWeight: 600 }}>📊 当前步骤详情</span>
+                <Tag color="blue">实时推理</Tag>
+              </Space>
+            }
+            style={{ borderColor: '#91caff' }}
+          >
             {stepData ? (
               <Descriptions column={1} size="small" bordered>
-                <Descriptions.Item label="当前步骤">{currentStep} / {totalSteps}</Descriptions.Item>
-                <Descriptions.Item label="当前摆放单元">
-                  {stepData.current_unit ? (
-                    <Tag color="blue">{stepData.current_unit.id || stepData.current_unit.name}</Tag>
-                  ) : <Text type="secondary">无</Text>}
+                <Descriptions.Item label="当前步骤">
+                  <Text strong>{currentStep} / {totalSteps}</Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="已摆放单元 ({stepData.placed_units?.length || 0})">
-                  <div style={{ maxHeight: 80, overflowY: "auto" }}>
+                <Descriptions.Item label="待摆放单元">
+                  {stepData.current_unit ? (
+                    <Tag color="processing">{stepData.current_unit.id || stepData.current_unit.name}</Tag>
+                  ) : <Tag color="success">全部完成</Tag>}
+                </Descriptions.Item>
+                <Descriptions.Item label={`已摆放 (${stepData.placed_units?.length || 0})`}>
+                  <div style={{ maxHeight: 60, overflowY: "auto" }}>
                     {stepData.placed_units && stepData.placed_units.length > 0 ? (
                       stepData.placed_units.map((p: any, i: number) => (
                         <Tag key={i} style={{ margin: 2 }} color="blue">
@@ -241,54 +254,114 @@ const ReplayPage = () => {
                     )}
                   </div>
                 </Descriptions.Item>
-                <Descriptions.Item label="选择的动作">
+                <Descriptions.Item label="模型选择">
                   {heatmap?.selected_action ? (
-                    <Text code>
-                      位置({heatmap.selected_action.x}, {heatmap.selected_action.y}) 角度{heatmap.selected_action.angle}° Q值={heatmap.selected_action.q_value?.toFixed(4)}
-                    </Text>
+                    <Space direction="vertical" size={0}>
+                      <Text code style={{ color: '#fa8c16' }}>
+                        位置 ({heatmap.selected_action.x}, {heatmap.selected_action.y})
+                      </Text>
+                      <Text code>
+                        角度 {heatmap.selected_action.angle}° · Q值 {heatmap.selected_action.q_value?.toFixed(4)}
+                      </Text>
+                    </Space>
                   ) : <Text type="secondary">无</Text>}
                 </Descriptions.Item>
               </Descriptions>
             ) : (
-              <Text type="secondary">暂无数据，请启动回放</Text>
+              <div style={{ textAlign: 'center', padding: '20px 0', color: '#999' }}>
+                请启动回放查看实时推理结果
+              </div>
             )}
           </Card>
 
-          <Card size="small" title={`回放进度 (步骤 ${currentStep}/${totalSteps})`} style={{ marginTop: 16 }}>
+          {/* 实时回放进度 */}
+          <Card 
+            size="small" 
+            title={
+              <Space>
+                <span style={{ color: '#1677ff', fontWeight: 600 }}>🔄 实时回放进度</span>
+                <Tag color="blue">步骤 {currentStep}/{totalSteps}</Tag>
+              </Space>
+            }
+            style={{ marginTop: 12, borderColor: '#91caff' }}
+          >
             {stepData?.layout?.placed_units && stepData.layout.placed_units.length > 0 ? (
-              <LayoutFlow key={`layout-${currentStep}`} layout={stepData.layout} height={280} />
+              <LayoutFlow key={`layout-${currentStep}`} layout={stepData.layout} height={240} />
             ) : (
-              <Text type="secondary">暂无布局数据（点击"下一步"开始摆放）</Text>
+              <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', borderRadius: 4 }}>
+                <Text type="secondary">点击"下一步"开始逐步摆放</Text>
+              </div>
             )}
           </Card>
 
-          <Card size="small" title="最终布局（训练保存）" style={{ marginTop: 16 }}>
+          {/* 训练保存的最终布局 */}
+          <Card 
+            size="small" 
+            title={
+              <Space>
+                <span style={{ color: '#52c41a', fontWeight: 600 }}>📁 训练保存的最终布局</span>
+                <Tag color="green">参考对比</Tag>
+              </Space>
+            }
+            style={{ marginTop: 12, borderColor: '#b7eb8f' }}
+          >
             {stepData?.saved_layout?.placed_units && stepData.saved_layout.placed_units.length > 0 ? (
-              <LayoutFlow key={`saved-layout-${form.getFieldValue('episode')}`} layout={stepData.saved_layout} height={280} />
+              <LayoutFlow key={`saved-layout-${form.getFieldValue('episode')}`} layout={stepData.saved_layout} height={240} />
             ) : (
-              <Text type="secondary">暂无保存的布局数据</Text>
+              <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f6ffed', borderRadius: 4 }}>
+                <Text type="secondary">暂无保存的布局数据</Text>
+              </div>
             )}
           </Card>
         </Col>
 
-        <Col span={14}>
-          <Card size="small" title="Q值热力图（所有角度最大值）">
-            {heatmap ? (
+        {/* 右侧：Q值热力图和物料量 */}
+        <Col span={13}>
+          {/* Q值热力图 */}
+          <Card 
+            size="small" 
+            title={
+              <Space>
+                <span style={{ color: '#1677ff', fontWeight: 600 }}>🔥 Q值热力图</span>
+                <Tag color="blue">实时计算</Tag>
+                <Text type="secondary" style={{ fontSize: 12 }}>所有角度取最大值</Text>
+              </Space>
+            }
+            style={{ borderColor: '#91caff' }}
+          >
+            {heatmap && heatmap.q_values && heatmap.selected_action ? (
               <QValueHeatmap heatmap={heatmap} />
             ) : (
-              <Text type="secondary">暂无热力图数据</Text>
+              <div style={{ height: 380, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', borderRadius: 4 }}>
+                <Text type="secondary">启动回放后显示Q值热力图</Text>
+              </div>
             )}
           </Card>
 
-          <Card size="small" title="物料量变化图" style={{ marginTop: 16 }}>
+          {/* 物料量变化图 */}
+          <Card 
+            size="small" 
+            title={
+              <Space>
+                <span style={{ color: '#52c41a', fontWeight: 600 }}>📈 物料量变化图</span>
+                <Tag color="green">最终布局仿真</Tag>
+              </Space>
+            }
+            style={{ marginTop: 12, borderColor: '#b7eb8f' }}
+          >
             {inventoryLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <Text type="secondary">正在运行仿真获取数据...</Text>
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Space direction="vertical" align="center">
+                  <div className="ant-spin ant-spin-spinning"><span className="ant-spin-dot ant-spin-dot-spin"><i></i><i></i><i></i><i></i></span></div>
+                  <Text type="secondary">正在运行仿真获取数据...</Text>
+                </Space>
               </div>
             ) : inventoryData?.series?.length > 0 ? (
               <InventoryChart data={inventoryData} />
             ) : (
-              <Text type="secondary">暂无物料量数据（启动回放后自动加载）</Text>
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f6ffed', borderRadius: 4 }}>
+                <Text type="secondary">启动回放后自动加载物料量数据</Text>
+              </div>
             )}
           </Card>
         </Col>
@@ -502,20 +575,14 @@ const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
     bestAngleGrid.push(angleRow);
   }
 
-  // 转换为ECharts格式 [x, y, value, angle]
-  const data: [number, number, number | null, number][] = [];
+  // 第一遍：收集有效Q值，计算范围
   let minVal = Infinity, maxVal = -Infinity;
   for (let y = 0; y < gridH; y++) {
     for (let x = 0; x < gridW; x++) {
       const v = maxQGrid[y][x];
-      const angle = bestAngleGrid[y][x];
-      // 如果是-Infinity（无效动作），设为null，不参与热力图颜色映射
-      const val = v === -Infinity ? null : v;
-      data.push([x, y, val, angle]);
-      
-      if (val !== null) {
-        if (val < minVal) minVal = val;
-        if (val > maxVal) maxVal = val;
+      if (v !== -Infinity) {
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
       }
     }
   }
@@ -526,64 +593,239 @@ const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
     maxVal = 0;
   }
 
+  // 非线性变换函数：增强高低Q值的对比度
+  // 将Q值归一化到[0,1]，应用幂函数变换，再映射回[0,1]
+  // 使用 gamma = 2.5，让高Q值更突出，低Q值更压缩
+  const gamma = 2.5;
+  const range = maxVal - minVal;
+  const transformQ = (q: number | null): number | null => {
+    if (q === null) return null;
+    if (range < 1e-9) return 0.5; // 避免除零
+    const normalized = (q - minVal) / range; // [0, 1]
+    const transformed = Math.pow(normalized, gamma); // 非线性变换
+    return transformed; // 返回变换后的值 [0, 1]
+  };
+
+  // 转换为ECharts格式 [x, y, transformedValue, angle, originalValue]
+  // transformedValue用于颜色映射，originalValue用于tooltip显示
+  const data: [number, number, number | null, number, number | null][] = [];
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      const v = maxQGrid[y][x];
+      const angle = bestAngleGrid[y][x];
+      const originalVal = v === -Infinity ? null : v;
+      const transformedVal = transformQ(originalVal);
+      data.push([x, y, transformedVal, angle, originalVal]);
+    }
+  }
+
   // 选中的动作位置
   const selected = heatmap.selected_action;
 
-  // 图例范围：使用实际数据范围，不再强制拉伸到[-1, 0]
-  // 确保 min != max 以避免渲染错误
-  let visualMapMin = minVal;
-  let visualMapMax = maxVal;
-  
-  if (Math.abs(visualMapMax - visualMapMin) < 1e-6) {
-      visualMapMin -= 0.1;
-      visualMapMax += 0.1;
-  }
+  // 图例范围：变换后的值范围是[0, 1]
+  const visualMapMin = 0;
+  const visualMapMax = 1;
 
   const option = {
     tooltip: {
       position: "top",
+      backgroundColor: 'rgba(50, 50, 50, 0.95)',
+      borderColor: '#333',
+      borderWidth: 1,
+      padding: [8, 12],
+      textStyle: {
+        color: '#fff',
+        fontSize: 13,
+      },
       formatter: (params: any) => {
-        const val = params.data[2];
-        const angle = params.data[3];
-        if (val === null) {
-            return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: 无效`;
+        // 处理markPoint的tooltip
+        if (params.componentType === 'markPoint') {
+          const coord = params.data.coord;
+          const qValue = params.data.value;
+          const angle = params.data.angle;
+          return `
+            <div style="font-weight:600;color:#fa8c16;margin-bottom:4px">🎯 模型选择的动作</div>
+            <div style="display:flex;justify-content:space-between;gap:16px">
+              <span style="color:#aaa">位置</span>
+              <span style="font-family:monospace">(${coord[0]}, ${coord[1]})</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:16px">
+              <span style="color:#aaa">角度</span>
+              <span style="font-family:monospace">${angle}°</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:16px">
+              <span style="color:#aaa">Q值</span>
+              <span style="font-family:monospace;color:#52c41a">${qValue?.toFixed(4) ?? 'N/A'}</span>
+            </div>
+          `;
         }
-        return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: ${val.toFixed(4)}<br/>角度: ${angle}°`;
+        // 处理heatmap数据点的tooltip
+        // data格式: [x, y, transformedValue, angle, originalValue]
+        const originalVal = params.data[4];
+        const angle = params.data[3];
+        if (originalVal === null) {
+          return `
+            <div style="color:#999">
+              <div style="margin-bottom:4px">📍 位置 (${params.data[0]}, ${params.data[1]})</div>
+              <div style="color:#ff7875">⛔ 无效动作</div>
+            </div>
+          `;
+        }
+        return `
+          <div style="margin-bottom:4px">📍 位置 <span style="font-family:monospace">(${params.data[0]}, ${params.data[1]})</span></div>
+          <div style="display:flex;justify-content:space-between;gap:16px">
+            <span style="color:#aaa">最佳角度</span>
+            <span style="font-family:monospace">${angle}°</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:16px">
+            <span style="color:#aaa">Q值</span>
+            <span style="font-family:monospace;color:#69b1ff">${originalVal.toFixed(4)}</span>
+          </div>
+        `;
       },
     },
-    grid: { top: 30, right: 60, bottom: 30, left: 30 },
-    xAxis: { type: "category", data: Array.from({ length: gridW }, (_, i) => i), splitArea: { show: true } },
-    yAxis: { type: "category", data: Array.from({ length: gridH }, (_, i) => i), splitArea: { show: true } },
+    grid: { 
+      top: 20, 
+      right: 80, 
+      bottom: 40, 
+      left: 50,
+      containLabel: false,
+    },
+    xAxis: { 
+      type: "category", 
+      data: Array.from({ length: gridW }, (_, i) => i),
+      name: 'X',
+      nameLocation: 'center',
+      nameGap: 25,
+      nameTextStyle: { color: '#666', fontSize: 12 },
+      axisLine: { lineStyle: { color: '#ddd' } },
+      axisTick: { show: false },
+      axisLabel: { 
+        color: '#888', 
+        fontSize: 10,
+        interval: (index: number) => index % 5 === 0, // 每5格显示一个标签
+      },
+      splitLine: { show: false },
+    },
+    yAxis: { 
+      type: "category", 
+      data: Array.from({ length: gridH }, (_, i) => i),
+      name: 'Y',
+      nameLocation: 'center',
+      nameGap: 35,
+      nameTextStyle: { color: '#666', fontSize: 12 },
+      axisLine: { lineStyle: { color: '#ddd' } },
+      axisTick: { show: false },
+      axisLabel: { 
+        color: '#888', 
+        fontSize: 10,
+        interval: (index: number) => index % 2 === 0, // 每2格显示一个标签
+      },
+      splitLine: { show: false },
+    },
     visualMap: {
       min: visualMapMin,
       max: visualMapMax,
       calculable: true,
       orient: "vertical",
-      right: 0,
+      right: 5,
       top: "center",
-      inRange: { color: ["#e6f7ff", "#1677ff", "#0050b3"] },
-      dimension: 2, // 显式指定使用第3列（Q值）进行颜色映射，避免使用第4列（角度）
-      formatter: (value: number) => value.toFixed(3), // 保留三位小数
+      itemWidth: 12,
+      itemHeight: 140,
+      precision: 3,
+      textStyle: { color: '#666', fontSize: 11 },
+      inRange: { 
+        color: [
+          '#f0f5ff',  // 最低 - 非常浅蓝
+          '#adc6ff',  // 低
+          '#597ef7',  // 中
+          '#2f54eb',  // 高
+          '#10239e',  // 最高 - 深蓝
+        ] 
+      },
+      dimension: 2,
+      // 图例显示真实Q值范围，将变换后的[0,1]映射回原始范围
+      formatter: (value: number) => {
+        const realValue = minVal + value * range;
+        return realValue.toFixed(2);
+      },
     },
     series: [
       {
         name: "Q值",
         type: "heatmap",
         data: data,
-        emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } },
+        itemStyle: {
+          borderColor: '#fff',
+          borderWidth: 0.5,
+          borderRadius: 2,
+        },
+        emphasis: { 
+          itemStyle: { 
+            shadowBlur: 15, 
+            shadowColor: "rgba(47, 84, 235, 0.5)",
+            borderColor: '#2f54eb',
+            borderWidth: 2,
+          } 
+        },
         markPoint: selected ? {
-          data: [{ coord: [selected.x, selected.y], symbolSize: 20, itemStyle: { color: "#fa8c16", borderColor: "#fff", borderWidth: 2 } }],
+          data: [{
+            coord: [selected.x, selected.y],
+            symbolSize: 24,
+            symbolOffset: [0, 0],
+            itemStyle: { 
+              color: '#fa8c16', 
+              borderColor: '#fff', 
+              borderWidth: 3,
+              shadowBlur: 10,
+              shadowColor: 'rgba(250, 140, 22, 0.6)',
+            },
+            value: selected.q_value,
+            angle: selected.angle,
+          }],
           symbol: "circle",
+          animation: true,
+          label: {
+            show: true,
+            formatter: '',
+            position: 'inside',
+            fontSize: 12,
+            offset: [0, 1],
+          },
         } : undefined,
       },
     ],
   };
 
   return (
-    <div>
-      <ReactECharts option={option} style={{ height: 380 }} />
-      <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 4 }}>
-        Q值范围: [{minVal.toFixed(4)}, {maxVal.toFixed(4)}] 
+    <div style={{ position: 'relative' }}>
+      <ReactECharts option={option} style={{ height: 420 }} />
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        gap: 24,
+        marginTop: 8,
+        padding: '8px 16px',
+        background: 'linear-gradient(to right, #f8faff, #fff, #f8faff)',
+        borderRadius: 6,
+        fontSize: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: 'linear-gradient(135deg, #f0f5ff, #10239e)', borderRadius: 2 }}></div>
+          <span style={{ color: '#666' }}>Q值范围</span>
+          <span style={{ fontFamily: 'monospace', color: '#2f54eb', fontWeight: 500 }}>
+            [{minVal.toFixed(3)}, {maxVal.toFixed(3)}]
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: '#fa8c16', borderRadius: '50%', border: '2px solid #fff', boxShadow: '0 0 4px rgba(250,140,22,0.5)' }}></div>
+          <span style={{ color: '#666' }}>模型选择</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 12, height: 12, background: '#f5f5f5', borderRadius: 2, border: '1px solid #ddd' }}></div>
+          <span style={{ color: '#999' }}>无效区域</span>
+        </div>
       </div>
     </div>
   );

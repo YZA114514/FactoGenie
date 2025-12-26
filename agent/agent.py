@@ -247,21 +247,23 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
     num_rotations = 4  # 0, 90, 180, 270
     
     # 重塑 Q 值为 [rotation, y, x] 的形式
-    # 假设动作编码为: action = rotation * (nx * ny) + y * nx + x
+    # 动作编码为: action = x * (ny * 4) + y * 4 + rotation_idx
+    # 其中 rotation_idx = rotation / 90 (0, 1, 2, 3)
     # 使用 None 代替 -np.inf，因为 JSON 不支持 Infinity
     q_values_3d = np.full((num_rotations, ny, nx), None, dtype=object)
     
     valid_actions_set = set(valid_actions)
     for action_idx, q_val in enumerate(q_values):
-        rotation = action_idx // (nx * ny)
-        remaining = action_idx % (nx * ny)
-        y = remaining // nx
-        x = remaining % nx
+        # 解码动作索引: action = x * (ny * 4) + y * 4 + rotation_idx
+        rotation_idx = action_idx % 4
+        remaining = action_idx // 4
+        y = remaining % ny
+        x = remaining // ny
         
-        if rotation < num_rotations and y < ny and x < nx:
+        if rotation_idx < num_rotations and y < ny and x < nx:
             # 只有有效动作才填充Q值，无效动作保持为 None
             if action_idx in valid_actions_set:
-                q_values_3d[rotation, y, x] = float(q_val)
+                q_values_3d[rotation_idx, y, x] = float(q_val)
     
     # 确定要显示的动作：如果提供了实际动作，使用它；否则使用Q值最大的动作
     if actual_action is not None and 0 <= actual_action < len(q_values):
@@ -277,10 +279,11 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
         else:
             display_action_idx = int(np.argmax(q_values))
     
-    display_rotation = display_action_idx // (nx * ny)
-    remaining = display_action_idx % (nx * ny)
-    display_y = remaining // nx
-    display_x = remaining % nx
+    # 解码显示动作的坐标
+    display_rotation_idx = display_action_idx % 4
+    remaining = display_action_idx // 4
+    display_y = remaining % ny
+    display_x = remaining // ny
     
     return {
         'grid_width': nx,
@@ -292,7 +295,7 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
         'selected_action': {
             'x': display_x,
             'y': display_y,
-            'angle': display_rotation * 90,
+            'angle': display_rotation_idx * 90,  # rotation_idx (0,1,2,3) -> 角度 (0,90,180,270)
             'q_value': float(q_values[display_action_idx]),
         },
         'q_min': float(np.min(q_values[q_values > -1e9])) if np.any(q_values > -1e9) else 0,

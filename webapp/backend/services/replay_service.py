@@ -158,7 +158,10 @@ class ReplayService:
     
     def get_step_data(self, step: int = None) -> Dict:
         """
-        获取指定步骤的数据
+        获取指定步骤的数据（实时推理模式）
+        
+        使用保存的模型权重进行实时推理，生成Q值热力图和步骤详情。
+        回放进度显示的是实时推理的结果，而不是训练时保存的布局。
         
         Args:
             step: 步骤索引（None 表示当前步）
@@ -170,151 +173,32 @@ class ReplayService:
             return {'error': 'Not initialized'}
         
         if step is not None and step != self._current_step:
-            # 需要重新执行到目标步骤
+            # 需要重新执行到目标步骤（使用实时推理）
             self._seek_to_step(step)
         
-        # 如果有保存的布局，从保存的布局中获取当前单元信息
-        if self._saved_layout is not None:
-            # 从保存的布局中获取当前步骤对应的单元
-            saved_data = self.get_saved_layout(max_step=None)
-            movable_units = []
-            
-            # 提取可移动单元（排除固定位置和固定障碍物）
-            constraints = self._saved_layout.get('constraints', {})
-            fixed_position_ids = set(constraints.get('fixed_positions', {}).keys() if isinstance(constraints.get('fixed_positions'), dict) else [])
-            fixed_obstacle_ids = set(constraints.get('fixed_obstacles', []))
-            
-            fus = self._saved_layout.get('fus', [])
-            for unit in fus:
-                unit_id = unit.get('id', '')
-                if unit_id not in fixed_position_ids:
-                    movable_units.append(unit)
-            
-            obstacles = self._saved_layout.get('obstacles', [])
-            for obs in obstacles:
-                obs_id = obs.get('id', '')
-                if obs_id not in fixed_obstacle_ids:
-                    movable_units.append(obs)
-            
-            # 当前步骤对应的单元（步骤从0开始，所以_current_step就是当前要放置的单元索引）
-            current_unit = None
-            if 0 <= self._current_step < len(movable_units):
-                unit_data = movable_units[self._current_step]
-                # 转换为环境格式
-                current_unit = {
-                    'id': unit_data.get('id', ''),
-                    'name': unit_data.get('id', ''),
-                    'size': (unit_data.get('length', 0), unit_data.get('width', 0)),
-                    'is_obstacle': unit_data.get('id', '') in [o.get('id', '') for o in obstacles],
-                }
-            
-            # 对于热力图，需要同步环境状态到当前步骤
-            # 这样热力图才能正确显示当前步骤的Q值
-            if self._env is not None and self._net is not None:
-                # 检查环境是否已经处于正确的步骤
-                env = self._env.env if hasattr(self._env, 'env') else self._env
-                current_env_step = getattr(env, 'current_unit_idx', -1)
-                
-                # 只有当环境步骤不匹配时才同步
-                # 注意：_sync_env_to_step 会使用保存的布局重置环境，这会覆盖实时推理的结果
-                # 所以如果我们在实时推理模式（step_forward推进），我们应该尽量避免调用它
-                if current_env_step != self._current_step:
-                    self._sync_env_to_step(self._current_step)
-                
-                state = self._get_current_state()
-            else:
-                state = None
-        else:
-            # 没有保存布局时，从环境获取
-            state = self._get_current_state()
-            if state is None:
-                return {'error': 'Cannot get current state'}
-            
-            # 获取当前单元信息
-            current_unit = None
-            if hasattr(self._env, 'env'):
-                env = self._env.env
-                if hasattr(env, 'current_unit_idx') and env.current_unit_idx < len(getattr(env, 'functional_units', [])):
-                    current_unit = env.functional_units[env.current_unit_idx]
+        # 从环境获取当前状态
+        state = self._get_current_state()
+        if state is None:
+            return {'error': 'Cannot get current state'}
         
-        # 获取当前步骤实际执行的动作（从保存的布局中获取训练时的真实位置）
-        # 这样可以在热力图中显示训练时选择的实际位置
-        actual_action = None
-        
-        # 获取热力图（每次都重新计算，确保是最新的，并传入实际执行的动作）
-        # 如果actual_action为None，则显示Q值最大的动作
-        # 注意：在保存布局模式下，环境状态已同步，可以正确计算热力图
-        if state is not None and self._net is not None:
-            # 始终不传入 actual_action，让 get_heatmap 自动选择 Q 值最大的动作
-            # 这样“选择的动作”就是基于当前 Q 值计算出的最佳动作，而不是历史记录的动作
-            heatmap = self.get_heatmap(actual_action=None)
-        else:
-            heatmap = {'error': 'Cannot compute heatmap: state or network not available'}
-        
-        # 获取回放进度布局：从当前环境状态构建
-        # 不再使用保存的布局，而是基于实时回放的结果
-        replay_layout = {}
-        if hasattr(self._env, 'env'):
-            env = self._env.env
-            # 构建布局数据
-            replay_layout = {
-                'grid_size': getattr(env, 'grid_size', (36, 18)),
-                'placed_units': [],
-                'constraints': getattr(env, 'placement_constraints', {})
+        # 获取当前单元信息（从环境）
+        current_unit = None
+        env = self._env.env if hasattr(self._env, 'env') else self._env
+        if hasattr(env, 'current_unit_idx') and env.current_unit_idx < len(getattr(env, 'functional_units', [])):
+            unit = env.functional_units[env.current_unit_idx]
+            current_unit = {
+                'id': unit.get('id', unit.get('name', '')),
+                'name': unit.get('name', unit.get('id', '')),
+                'size': unit.get('size', (0, 0)),
+                'is_obstacle': unit.get('is_obstacle', False),
             }
-            
-            # 添加已放置的单元
-            functional_units = getattr(env, 'functional_units', [])
-            placed_units_env = getattr(env, 'placed_units', [])
-            
-            for unit_idx, x, y, rotation in placed_units_env:
-                if unit_idx < len(functional_units):
-                    unit = functional_units[unit_idx]
-                    unit_data = unit.copy()
-                    # Handle notch tuple from ConfigLoader
-                    notch = unit.get('notch', (0, 0))
-                    notch_length = unit.get('notch_length', notch[0] if notch else 0)
-                    notch_width = unit.get('notch_width', notch[1] if notch else 0)
-
-                    unit_data.update({
-                        'unit_id': unit.get('id', unit.get('name', f'unit_{unit_idx}')),
-                        'x': x,
-                        'y': y,
-                        'angle': rotation,
-                        # 确保包含尺寸信息
-                        'length': unit.get('length', unit.get('size', [1, 1])[0] if isinstance(unit.get('size'), (list, tuple)) else 1),
-                        'width': unit.get('width', unit.get('size', [1, 1])[1] if isinstance(unit.get('size'), (list, tuple)) else 1),
-                        # 确保包含缺角信息
-                        'notch_length': notch_length,
-                        'notch_width': notch_width,
-                    })
-                    replay_layout['placed_units'].append(unit_data)
-            
-            # 添加固定障碍物
-            layout_template = getattr(env, 'layout_template', None)
-            if layout_template:
-                fixed_obstacle_ids = set(env.placement_constraints.get('fixed_obstacles', []))
-                obstacles = layout_template.get('obstacles', [])
-                for obs in obstacles:
-                    obs_id = obs.get('id', '')
-                    if obs_id in fixed_obstacle_ids:
-                        obs_data = obs.copy()
-                        # Handle notch tuple from ConfigLoader
-                        notch = obs.get('notch', (0, 0))
-                        notch_length = obs.get('notch_length', notch[0] if notch else 0)
-                        notch_width = obs.get('notch_width', notch[1] if notch else 0)
-
-                        obs_data.update({
-                            'unit_id': obs_id,
-                            'is_fixed_obstacle': True,
-                            # 确保包含尺寸信息
-                            'length': obs.get('length', obs.get('size', [1, 1])[0] if isinstance(obs.get('size'), (list, tuple)) else 1),
-                            'width': obs.get('width', obs.get('size', [1, 1])[1] if isinstance(obs.get('size'), (list, tuple)) else 1),
-                            # 确保包含缺角信息
-                            'notch_length': notch_length,
-                            'notch_width': notch_width,
-                        })
-                        replay_layout['placed_units'].append(obs_data)
+        
+        # 计算Q值热力图（实时推理）
+        # 不传入actual_action，让热力图显示模型选择的最佳动作
+        heatmap = self.get_heatmap(actual_action=None)
+        
+        # 获取回放进度布局（从当前环境状态构建）
+        replay_layout = self._build_layout_from_env()
         
         # 同时返回保存的最终布局（用于对比）
         saved_layout = self.get_saved_layout(max_step=None)
@@ -485,6 +369,78 @@ class ReplayService:
             return state_array
         return None
     
+    def _build_layout_from_env(self) -> Dict:
+        """
+        从当前环境状态构建布局数据
+        
+        Returns:
+            布局数据字典
+        """
+        if not hasattr(self._env, 'env'):
+            return {'grid_size': [36, 18], 'placed_units': []}
+        
+        env = self._env.env
+        
+        # 构建布局数据
+        layout = {
+            'grid_size': list(getattr(env, 'grid_size', (36, 18))),
+            'placed_units': [],
+            'constraints': getattr(env, 'placement_constraints', {})
+        }
+        
+        # 添加已放置的单元
+        functional_units = getattr(env, 'functional_units', [])
+        placed_units_env = getattr(env, 'placed_units', [])
+        
+        for unit_idx, x, y, rotation in placed_units_env:
+            if unit_idx < len(functional_units):
+                unit = functional_units[unit_idx]
+                # Handle notch tuple from ConfigLoader
+                notch = unit.get('notch', (0, 0))
+                notch_length = unit.get('notch_length', notch[0] if notch else 0)
+                notch_width = unit.get('notch_width', notch[1] if notch else 0)
+                
+                # 获取尺寸
+                size = unit.get('size', [1, 1])
+                length = unit.get('length', size[0] if isinstance(size, (list, tuple)) else 1)
+                width = unit.get('width', size[1] if isinstance(size, (list, tuple)) else 1)
+                
+                unit_data = {
+                    'unit_id': unit.get('id', unit.get('name', f'unit_{unit_idx}')),
+                    'x': x,
+                    'y': y,
+                    'angle': rotation,
+                    'length': length,
+                    'width': width,
+                    'notch_length': notch_length,
+                    'notch_width': notch_width,
+                    'typeLabel': 'Obstacle' if unit.get('is_obstacle', False) else 'FU',
+                }
+                layout['placed_units'].append(unit_data)
+        
+        # 添加固定障碍物
+        layout_template = getattr(env, 'layout_template', None)
+        if layout_template:
+            fixed_obstacle_ids = set(env.placement_constraints.get('fixed_obstacles', []))
+            obstacles = layout_template.get('obstacles', [])
+            for obs in obstacles:
+                obs_id = obs.get('id', '')
+                if obs_id in fixed_obstacle_ids:
+                    layout['placed_units'].append({
+                        'unit_id': obs_id,
+                        'x': obs.get('x', 0),
+                        'y': obs.get('y', 0),
+                        'angle': obs.get('angle', 0),
+                        'length': obs.get('length', 4),
+                        'width': obs.get('width', 4),
+                        'notch_length': obs.get('notch_length', 0),
+                        'notch_width': obs.get('notch_width', 0),
+                        'typeLabel': 'Obstacle',
+                        'is_fixed_obstacle': True,
+                    })
+        
+        return layout
+    
     def _find_unit_in_saved_layout(self, unit_id: str) -> Optional[Dict]:
         """
         在保存的布局中查找指定ID的单元
@@ -537,10 +493,10 @@ class ReplayService:
             ny = getattr(env, 'grid_rows', 18)
         
         # 角度转rotation索引（0, 90, 180, 270 -> 0, 1, 2, 3）
-        rotation = (angle // 90) % 4
+        rotation_idx = (angle // 90) % 4
         
-        # action = rotation * (nx * ny) + y * nx + x
-        action_idx = rotation * (nx * ny) + y * nx + x
+        # 动作编码: action = x * (ny * 4) + y * 4 + rotation_idx
+        action_idx = x * (ny * 4) + y * 4 + rotation_idx
         return action_idx
     
     def get_heatmap(self, actual_action=None) -> Dict:
@@ -649,6 +605,10 @@ class ReplayService:
             # 跳过固定位置的单元
             if hasattr(env, '_skip_fixed_units'):
                 env._skip_fixed_units()
+        
+        # 清除wrapper的有效动作缓存，确保下次调用get_valid_actions时重新计算
+        if hasattr(self._env, '_valid_actions_cache'):
+            self._env._valid_actions_cache = None
         
         print(f"[DEBUG] _sync_env_to_step: 已同步环境到步骤 {target_step}")
     

@@ -338,11 +338,29 @@ class TrainingService:
             )
 
             if result.get('success'):
-                crud.update_project(
-                    db_local, project_id,
-                    status='completed',
-                    final_reward=result.get('final_reward', 0),
-                )
+                # 检查项目当前状态，如果已经是 stopped，就不要更新
+                current_project = crud.get_project(db_local, project_id)
+                if current_project and current_project.status == 'stopped':
+                    # 状态已经是 stopped，只更新 final_reward（如果训练确实完成了）
+                    if not result.get('stopped', False):
+                        crud.update_project(
+                            db_local, project_id,
+                            final_reward=result.get('final_reward', 0),
+                        )
+                else:
+                    # 检查是否被手动停止
+                    if result.get('stopped', False):
+                        crud.update_project(
+                            db_local, project_id,
+                            status='stopped',
+                            final_reward=result.get('final_reward', 0),
+                        )
+                    else:
+                        crud.update_project(
+                            db_local, project_id,
+                            status='completed',
+                            final_reward=result.get('final_reward', 0),
+                        )
             else:
                 # 记录失败原因
                 try:
