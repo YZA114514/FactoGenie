@@ -231,70 +231,100 @@ def get_q_values_heatmap(net, env, state, device="cpu", actual_action=None):
         热力图数据字典
     """
     # 获取所有 Q 值
-    q_values = get_q_values_for_state(net, state, device)
-    
+    raw_q_values = get_q_values_for_state(net, state, device)
+
     # 获取有效动作
     valid_actions = []
     if hasattr(env, 'get_valid_actions'):
         valid_actions = env.get_valid_actions()
-    
-    # 获取网格尺寸
-    grid_size = getattr(env, 'grid_size', (20, 20))
-    if hasattr(env, 'env'):
-        grid_size = getattr(env.env, 'grid_size', (20, 20))
-    
+
+    # 获取网格尺寸与旋转数
+    base_env = env.env if hasattr(env, 'env') else env
+    grid_size = getattr(base_env, 'grid_size', (20, 20))
     nx, ny = grid_size
-    num_rotations = 4  # 0, 90, 180, 270
-    
-    # 重塑 Q 值为 [rotation, y, x] 的形式
-    # 假设动作编码为: action = rotation * (nx * ny) + y * nx + x
-    # 使用 None 代替 -np.inf，因为 JSON 不支持 Infinity
-    q_values_3d = np.full((num_rotations, ny, nx), None, dtype=object)
-    
-    valid_actions_set = set(valid_actions)
-    for action_idx, q_val in enumerate(q_values):
-        rotation = action_idx // (nx * ny)
+    num_rotations = getattr(base_env, 'num_rotations', 4)
+    angle_options = [r * 90 for r in range(num_rotations)]
+
+    # 解码动作索引 → (x, y, rotation)
+    def decode_action(action_idx: int):
+        if hasattr(env, '_action_idx_to_dict'):
+            return env._action_idx_to_dict(action_idx)
+        if hasattr(base_env, '_action_idx_to_dict'):
+            return base_env._action_idx_to_dict(action_idx)
+        # 回退到旧的编码假设：rotation * (nx*ny) + y*nx + x
+        rotation_idx = action_idx // (nx * ny)
         remaining = action_idx % (nx * ny)
         y = remaining // nx
         x = remaining % nx
-        
-        if rotation < num_rotations and y < ny and x < nx:
-            # 只有有效动作才填充Q值，无效动作保持为 None
-            if action_idx in valid_actions_set:
-                q_values_3d[rotation, y, x] = float(q_val)
+        rotation = rotation_idx * 90
+        return {'x': x, 'y': y, 'rotation': rotation}
+    
+    # 将无效动作的 Q 值显式设为 -inf，便于后续选择和展示
+    masked_q_values = np.full(raw_q_values.shape, -np.inf, dtype=float)
+    valid_actions_set = set(valid_actions)
+    for action_idx in valid_actions_set:
+        if 0 <= action_idx < len(raw_q_values):
+            masked_q_values[action_idx] = float(raw_q_values[action_idx])
+
+    # 重塑 Q 值为 [rotation, y, x] 的形式
+    # 使用 None 代替 -np.inf，因为 JSON 不支持 Infinity
+    q_values_3d = np.full((num_rotations, ny, nx), None, dtype=object)
+    
+    for action_idx, q_val in enumerate(masked_q_values):
+        if action_idx not in valid_actions_set:
+            continue
+        action_dict = decode_action(action_idx)
+        x = action_dict.get('x', 0)
+        y = action_dict.get('y', 0)
+        rotation = action_dict.get('rotation', 0) // 90
+
+        if 0 <= rotation < num_rotations and 0 <= y < ny and 0 <= x < nx:
+            q_values_3d[rotation, y, x] = float(q_val)
     
     # 确定要显示的动作：如果提供了实际动作，使用它；否则使用Q值最大的动作
-    if actual_action is not None and 0 <= actual_action < len(q_values):
+    if actual_action is not None and 0 <= actual_action < len(masked_q_values):
         display_action_idx = actual_action
     else:
         # 在有效动作中选择Q值最大的
         if valid_actions:
-            valid_q = [(a, q_values[a]) for a in valid_actions if 0 <= a < len(q_values)]
+            valid_q = [(a, masked_q_values[a]) for a in valid_actions if 0 <= a < len(masked_q_values)]
             if valid_q:
                 display_action_idx = max(valid_q, key=lambda x: x[1])[0]
             else:
-                display_action_idx = int(np.argmax(q_values))
+                display_action_idx = int(np.argmax(masked_q_values))
         else:
-            display_action_idx = int(np.argmax(q_values))
+            display_action_idx = int(np.argmax(masked_q_values))
     
-    display_rotation = display_action_idx // (nx * ny)
-    remaining = display_action_idx % (nx * ny)
-    display_y = remaining // nx
-    display_x = remaining % nx
+    display_decoded = decode_action(display_action_idx)
+    display_rotation = display_decoded.get('rotation', 0) // 90
+    display_x = display_decoded.get('x', 0)
+    display_y = display_decoded.get('y', 0)
+
+    # 计算有效Q值范围（排除 -inf）
+    finite_q_values = masked_q_values[np.isfinite(masked_q_values)]
+    if finite_q_values.size > 0:
+        q_min = float(finite_q_values.min())
+        q_max = float(finite_q_values.max())
+    else:
+        q_min = 0.0
+        q_max = 0.0
+
+    # 将扁平化Q值转换为可序列化的列表（无效动作用 None）
+    q_values_flat = [None if not np.isfinite(v) else float(v) for v in masked_q_values]
     
     return {
         'grid_width': nx,
         'grid_height': ny,
-        'angle_options': [0, 90, 180, 270],
+        'angle_options': angle_options,
         'q_values': q_values_3d.tolist(),
-        'q_values_flat': q_values.tolist(),
+        'q_values_flat': q_values_flat,
         'valid_actions': valid_actions,
         'selected_action': {
             'x': display_x,
             'y': display_y,
             'angle': display_rotation * 90,
-            'q_value': float(q_values[display_action_idx]),
+            'q_value': float(masked_q_values[display_action_idx]) if np.isfinite(masked_q_values[display_action_idx]) else None,
         },
-        'q_min': float(np.min(q_values[q_values > -1e9])) if np.any(q_values > -1e9) else 0,
-        'q_max': float(np.max(q_values)),
+        'q_min': q_min,
+        'q_max': q_max,
     }

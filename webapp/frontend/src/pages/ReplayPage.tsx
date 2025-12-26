@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Typography, Form, InputNumber, Button, Space, message, Row, Col, Alert, Tag, Select, Descriptions, Progress } from "antd";
+import { Card, Typography, Form, InputNumber, Button, Space, message, Row, Col, Alert, Tag, Select, Descriptions, Progress, Segmented } from "antd";
 import { StepBackwardOutlined, StepForwardOutlined, ReloadOutlined } from "@ant-design/icons";
 import { replayApi, trainingApi } from "../services/api";
 import type { ActionHeatmap } from "../types";
@@ -9,11 +9,14 @@ import "reactflow/dist/style.css";
 
 const { Title, Paragraph, Text } = Typography;
 
+type HeatmapMode = "raw" | "interp";
+
 const ReplayPage = () => {
   const [form] = Form.useForm<{ projectId: string; episode: number }>();
   const [info, setInfo] = useState<any>(null);
   const [stepData, setStepData] = useState<any>(null);
   const [heatmap, setHeatmap] = useState<ActionHeatmap | null>(null);
+  const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>("raw");
   const [loading, setLoading] = useState(false);
   const [projectOptions, setProjectOptions] = useState<{ label: string; value: string }[]>([]);
   const [checkpointOptions, setCheckpointOptions] = useState<{ label: string; value: number }[]>([]);
@@ -54,7 +57,6 @@ const ReplayPage = () => {
       setInfo(res.data);
       message.success("回放已启动");
       await fetchStep(0);
-      // 同时获取物料量变化数据（传递episode参数以使用对应检查点的布局）
       fetchInventoryData(projectId, Number(episode));
     } catch (e) {
       message.error(e instanceof Error ? e.message : "启动失败");
@@ -82,14 +84,13 @@ const ReplayPage = () => {
   const fetchStep = async (stepNum?: number) => {
     const projectId = form.getFieldValue("projectId");
     if (!projectId) return;
-    // 优先使用传入的参数，否则使用跳转输入框的值，最后使用当前步骤
     const stepVal = stepNum !== undefined ? stepNum : (jumpStep ?? stepData?.step ?? 0);
     try {
       const res = await replayApi.step(projectId, Number(stepVal));
       if (res.code === 0) {
         setStepData(res.data);
         setHeatmap(res.data?.heatmap || null);
-        setJumpStep(res.data?.step ?? null);  // 同步更新跳转输入框
+        setJumpStep(res.data?.step ?? null);
       } else {
         message.warning(res.message || "跳转失败");
       }
@@ -148,7 +149,6 @@ const ReplayPage = () => {
     message.success("已关闭回放会话");
   };
 
-  // 当前步骤和总步骤
   const currentStep = stepData?.step ?? 0;
   const totalSteps = stepData?.total_steps ?? info?.total_steps ?? 0;
   const progress = totalSteps > 0 ? ((currentStep / totalSteps) * 100) : 0;
@@ -273,8 +273,17 @@ const ReplayPage = () => {
 
         <Col span={14}>
           <Card size="small" title="Q值热力图（所有角度最大值）">
+            <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#666' }}>显示模式</span>
+              <Segmented
+                size="small"
+                value={heatmapMode}
+                onChange={(v) => setHeatmapMode(v as HeatmapMode)}
+                options={[{ label: '原始', value: 'raw' }, { label: '插值平滑', value: 'interp' }]}
+              />
+            </div>
             {heatmap ? (
-              <QValueHeatmap heatmap={heatmap} />
+              <QValueHeatmap heatmap={heatmap} mode={heatmapMode} />
             ) : (
               <Text type="secondary">暂无热力图数据</Text>
             )}
@@ -299,20 +308,16 @@ const ReplayPage = () => {
 
 export default ReplayPage;
 
-// 布局快照ReactFlow组件（可交互、可拖拽、可缩放）
-// 完全复用ResultsPage的渲染逻辑
+// 布局快照ReactFlow组件
 const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) => {
   if (!layout || !layout.placed_units || !Array.isArray(layout.placed_units) || layout.placed_units.length === 0) {
     return <Text type="secondary">暂无布局数据</Text>;
   }
-  
-  // 使用与ResultsPage相同的缩放计算
   const gridSize = layout.grid_size || [36, 18];
   const canvasW = gridSize[0];
   const canvasH = gridSize[1];
   const scale = 360 / Math.max(canvasW, canvasH, 1);
-  
-  // 完全复用ResultsPage的rotateCW函数
+
   const rotateCW = (dx: number, dy: number, angleDeg: number) => {
     const rad = (angleDeg * Math.PI) / 180;
     const cos = Math.cos(rad);
@@ -320,18 +325,15 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
     return { x: cos * dx + sin * dy, y: -sin * dx + cos * dy };
   };
 
-  // 转换placed_units为ReactFlow节点（与ResultsPage完全一致的逻辑）
   const nodes: RFNode[] = layout.placed_units.map((u: any, idx: number) => {
     const baseX = u.x ?? (idx % 5) * (canvasW / 5);
     const baseY = u.y ?? Math.floor(idx / 5) * (canvasH / 5);
-    // 使用length和width（与ResultsPage一致）
-    const len = u.length || u.height || 10;  // length对应高度
-    const wid = u.width || 10;  // width对应宽度
-    const nl = u.notch_length || 0;  // 缺口长度
-    const nw = u.notch_width || 0;  // 缺口宽度
+    const len = u.length || u.height || 10;
+    const wid = u.width || 10;
+    const nl = u.notch_length || 0;
+    const nw = u.notch_width || 0;
     const angle = u.angle || 0;
 
-    // 构建多边形（左下角为原点）- 支持缺口形状
     const pts: { x: number; y: number }[] = nl && nw
       ? [
           { x: 0, y: 0 },
@@ -347,39 +349,34 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
           { x: len, y: wid },
           { x: 0, y: wid },
         ];
-    
-    // 旋转多边形并应用缩放
+
     const rotated = pts.map((p) => {
       const r = rotateCW(p.x, p.y, angle);
       return { x: (baseX + r.x) * scale, y: (baseY + r.y) * scale };
     });
-    
-    // 计算边界框
+
     const minX = Math.min(...rotated.map((p) => p.x));
     const minY = Math.min(...rotated.map((p) => p.y));
     const maxX = Math.max(...rotated.map((p) => p.x));
     const maxY = Math.max(...rotated.map((p) => p.y));
-    
-    // 翻转y轴：环境的y向上，ReactFlow的y向下
+
     const rfMinY = canvasH * scale - maxY;
     const rfMaxY = canvasH * scale - minY;
-    
-    // 转换为相对坐标（翻转y轴后）
+
     const relPoly = rotated.map((p) => ({ 
       x: p.x - minX, 
-      y: (canvasH * scale - p.y) - rfMinY  // 翻转y轴
+      y: (canvasH * scale - p.y) - rfMinY
     }));
-    
-    // 使用后端返回的typeLabel，或根据ID判断
+
     const typeLabel = u.typeLabel || (
       (u.unit_id || '').toLowerCase().includes('obstacle') || 
       (u.unit_id || '').toLowerCase().includes('cafeteria') ? 'Obstacle' : 'FU'
     );
-    
+
     return {
       id: u.unit_id || `unit-${idx}`,
       type: "layoutNode",
-      position: { x: minX + 10, y: rfMinY + 10 },  // 使用翻转后的y坐标
+      position: { x: minX + 10, y: rfMinY + 10 },
       data: {
         id: u.unit_id || u.label || `U${idx}`,
         typeLabel: typeLabel,
@@ -391,7 +388,6 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
     };
   });
 
-  // 自定义节点组件（与ResultsPage的LayoutNode完全一致）
   const LayoutNode = ({ data }: any) => {
     const { id, typeLabel, polygon, width, height } = data;
     const stroke = typeLabel === "FU" ? "#1677ff" : "#ff4d4f";
@@ -399,7 +395,6 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
     const pathD = polygon && polygon.length
       ? `M ${polygon.map((p: any) => `${p.x} ${p.y}`).join(" L ")} Z`
       : `M0 0 H ${width} V ${height} H 0 Z`;
-    
     return (
       <div style={{ width, height, position: "relative" }}>
         <svg width={width} height={height} style={{ position: "absolute", top: 0, left: 0 }}>
@@ -412,7 +407,6 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
     );
   };
 
-  // 工厂边界节点
   const BoundaryNode = ({ data }: any) => {
     const { width, height, label } = data;
     return (
@@ -466,130 +460,243 @@ const LayoutFlow = ({ layout, height = 400 }: { layout: any; height?: number }) 
   );
 };
 
-// Q值热力图组件（使用ECharts绘制等高线图/热力图）
-const QValueHeatmap = ({ heatmap }: { heatmap: ActionHeatmap }) => {
-  // 合并四个角度的Q值，取每个位置的最大值
+// Q值热力图组件（非线性色彩 + 可选插值）
+const QValueHeatmap = ({ heatmap, mode }: { heatmap: ActionHeatmap; mode: HeatmapMode }) => {
   const gridW = heatmap.grid_width || 0;
   const gridH = heatmap.grid_height || 0;
   const qValues = heatmap.q_values || [];
-  
-  // 计算每个位置四个角度的最大Q值
-  const maxQGrid: number[][] = [];
-  const bestAngleGrid: number[][] = []; // 记录每个位置的最佳角度
+  const selected = heatmap.selected_action;
+  const interpFactor = 20; // higher factor for smoother look
 
+  // 取四个角度最大Q与对应角度
+  const maxQGrid: number[][] = [];
+  const bestAngleGrid: number[][] = [];
+  const validValues: number[] = [];
   for (let y = 0; y < gridH; y++) {
     const row: number[] = [];
     const angleRow: number[] = [];
     for (let x = 0; x < gridW; x++) {
-      let maxQ = -Infinity;
-      let bestAngle = 0;
-      let hasValid = false;
-      for (let angle = 0; angle < 4 && angle < qValues.length; angle++) {
-        const val = qValues[angle]?.[y]?.[x];
-        // 后端现在返回 null 表示无效动作
-        if (val !== undefined && val !== null && val > -1e9) {
-          if (val > maxQ) {
-            maxQ = val;
-            bestAngle = angle * 90; // 转换为角度值
+      let maxQ = Number.NEGATIVE_INFINITY;
+      let bestAngle = -1;
+      for (let a = 0; a < 4 && a < qValues.length; a++) {
+        const v = qValues[a]?.[y]?.[x];
+        if (v !== undefined && v !== null && v > -1e9) {
+          if (v > maxQ) {
+            maxQ = v;
+            bestAngle = a * 90;
           }
-          hasValid = true;
+          validValues.push(v);
         }
       }
-      row.push(hasValid ? maxQ : -Infinity);
-      angleRow.push(hasValid ? bestAngle : -1);
+      row.push(maxQ);
+      angleRow.push(bestAngle);
     }
     maxQGrid.push(row);
     bestAngleGrid.push(angleRow);
   }
 
-  // 转换为ECharts格式 [x, y, value, angle]
-  const data: [number, number, number | null, number][] = [];
-  let minVal = Infinity, maxVal = -Infinity;
-  for (let y = 0; y < gridH; y++) {
-    for (let x = 0; x < gridW; x++) {
-      const v = maxQGrid[y][x];
-      const angle = bestAngleGrid[y][x];
-      // 如果是-Infinity（无效动作），设为null，不参与热力图颜色映射
-      const val = v === -Infinity ? null : v;
-      data.push([x, y, val, angle]);
-      
-      if (val !== null) {
-        if (val < minVal) minVal = val;
-        if (val > maxVal) maxVal = val;
+  const minValid = validValues.length ? Math.min(...validValues) : -1;
+
+  // 预处理：将不可行区域填充为最小值，以便进行全图插值
+  const filledMaxQGrid = maxQGrid.map(row => row.map(v => 
+    (Number.isFinite(v) && v > -1e9) ? v : minValid
+  ));
+
+  const gamma = 2.5; // 降低Gamma值，使色彩过渡更柔和
+  const scaleQ = (v: number) => {
+    const abs = Math.abs(v);
+    return abs === 0 ? 0 : Math.sign(v) * Math.pow(abs, gamma);
+  };
+  const unscaleQ = (v: number) => {
+    const abs = Math.abs(v);
+    return abs === 0 ? 0 : Math.sign(v) * Math.pow(abs, 1 / gamma);
+  };
+
+  const buildData = (grid: number[][], angleGrid: number[][], fillInvalid?: number) => {
+    const data: [number, number, number | null, number, number | null][] = [];
+    let rawMin = Infinity, rawMax = -Infinity;
+    let scaledMin = Infinity, scaledMax = -Infinity;
+    for (let y = 0; y < grid.length; y++) {
+      for (let x = 0; x < grid[0].length; x++) {
+        const raw = grid[y][x];
+        const angle = angleGrid[y][x];
+        if (!Number.isFinite(raw) || raw <= -1e9) {
+          if (fillInvalid !== undefined) {
+            const scaled = scaleQ(fillInvalid);
+            data.push([x, y, scaled, angle, fillInvalid]);
+            rawMin = Math.min(rawMin, fillInvalid);
+            rawMax = Math.max(rawMax, fillInvalid);
+            scaledMin = Math.min(scaledMin, scaled);
+            scaledMax = Math.max(scaledMax, scaled);
+          } else {
+            data.push([x, y, null, angle, null]);
+          }
+          continue;
+        }
+        const scaled = scaleQ(raw);
+        rawMin = Math.min(rawMin, raw);
+        rawMax = Math.max(rawMax, raw);
+        scaledMin = Math.min(scaledMin, scaled);
+        scaledMax = Math.max(scaledMax, scaled);
+        data.push([x, y, scaled, angle, raw]);
       }
     }
-  }
-  
-  // 如果全是无效值，给默认范围
-  if (minVal === Infinity) {
-    minVal = -1;
-    maxVal = 0;
-  }
+    if (rawMin === Infinity) { rawMin = -1; rawMax = 0; }
+    if (scaledMin === Infinity) { scaledMin = -1; scaledMax = 0; }
+    if (Math.abs(scaledMax - scaledMin) < 1e-6) { scaledMin -= 0.1; scaledMax += 0.1; }
+    return { data, rawMin, rawMax, scaledMin, scaledMax };
+  };
 
-  // 选中的动作位置
-  const selected = heatmap.selected_action;
+  const interpolateGrid = (grid: number[][], angleGrid: number[][], factor = 20) => {
+    const h = grid.length;
+    const w = grid[0].length;
+    const newW = (w - 1) * factor + 1;
+    const newH = (h - 1) * factor + 1;
+    const out: number[][] = [];
+    const angleOut: number[][] = [];
 
-  // 图例范围：使用实际数据范围，不再强制拉伸到[-1, 0]
-  // 确保 min != max 以避免渲染错误
-  let visualMapMin = minVal;
-  let visualMapMax = maxVal;
-  
-  if (Math.abs(visualMapMax - visualMapMin) < 1e-6) {
-      visualMapMin -= 0.1;
-      visualMapMax += 0.1;
-  }
+    for (let y = 0; y < newH; y++) {
+      const row: number[] = [];
+      const angleRow: number[] = [];
+      const yf = y / factor;
+      const y0 = Math.floor(yf);
+      const y1 = Math.min(h - 1, y0 + 1);
+      const ty = yf - y0;
+      
+      // 使用 Smootherstep (Quintic) 函数，比 Smoothstep 更平滑
+      // 6t^5 - 15t^4 + 10t^3
+      const sy = ty * ty * ty * (ty * (ty * 6 - 15) + 10);
+
+      for (let x = 0; x < newW; x++) {
+        const xf = x / factor;
+        const x0 = Math.floor(xf);
+        const x1 = Math.min(w - 1, x0 + 1);
+        const tx = xf - x0;
+        
+        // 使用 Smootherstep (Quintic)
+        const sx = tx * tx * tx * (tx * (tx * 6 - 15) + 10);
+
+        // 双线性插值 (假设grid已填充满有效值)
+        const q00 = grid[y0][x0];
+        const q10 = grid[y0][x1];
+        const q01 = grid[y1][x0];
+        const q11 = grid[y1][x1];
+
+        const interp = 
+          q00 * (1 - sx) * (1 - sy) +
+          q10 * sx * (1 - sy) +
+          q01 * (1 - sx) * sy +
+          q11 * sx * sy;
+        
+        row.push(interp);
+        
+        // 角度取最近邻
+        const nx = Math.round(xf);
+        const ny = Math.round(yf);
+        angleRow.push(angleGrid[ny][nx]);
+      }
+      out.push(row);
+      angleOut.push(angleRow);
+    }
+    return { grid: out, angleGrid: angleOut };
+  };
+
+  const base = buildData(maxQGrid, bestAngleGrid); // 原始模式：不填充，无效值留空
+  const { grid: interpGrid, angleGrid: interpAngleGrid } = interpolateGrid(filledMaxQGrid, bestAngleGrid, interpFactor);
+  const interp = buildData(interpGrid, interpAngleGrid); // 插值模式：已填充，全图渲染
+
+  const view = mode === "raw" ? base : interp;
+  const viewW = mode === "raw" ? gridW : interpGrid[0].length;
+  const viewH = mode === "raw" ? gridH : interpGrid.length;
 
   const option = {
     tooltip: {
       position: "top",
       formatter: (params: any) => {
-        const val = params.data[2];
+        const raw = params.data[4];
         const angle = params.data[3];
-        if (val === null) {
-            return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: 无效`;
+        const x = params.data[0];
+        const y = params.data[1];
+        const displayX = mode === "raw" ? x : (x / interpFactor).toFixed(1);
+        const displayY = mode === "raw" ? y : (y / interpFactor).toFixed(1);
+
+        if (raw === null) {
+          return `位置(${displayX}, ${displayY})<br/>Q值: 无效`;
         }
-        return `位置(${params.data[0]}, ${params.data[1]})<br/>Q值: ${val.toFixed(4)}<br/>角度: ${angle}°`;
+        return `位置(${displayX}, ${displayY})<br/>Q值: ${raw.toFixed(4)}<br/>角度: ${angle}°`;
       },
     },
-    grid: { top: 30, right: 60, bottom: 30, left: 30 },
-    xAxis: { type: "category", data: Array.from({ length: gridW }, (_, i) => i), splitArea: { show: true } },
-    yAxis: { type: "category", data: Array.from({ length: gridH }, (_, i) => i), splitArea: { show: true } },
+    grid: { top: 30, right: 70, bottom: 35, left: 40 },
+    xAxis: { 
+      type: "category", 
+      data: Array.from({ length: viewW }, (_, i) => i), 
+      splitArea: { show: true },
+      axisLabel: {
+        interval: mode === "interp" ? interpFactor - 1 : "auto",
+        formatter: (val: string) => {
+          const v = parseInt(val);
+          return mode === "raw" ? val : (v / interpFactor).toString();
+        }
+      }
+    },
+    yAxis: { 
+      type: "category", 
+      data: Array.from({ length: viewH }, (_, i) => i), 
+      splitArea: { show: true },
+      axisLabel: {
+        interval: mode === "interp" ? interpFactor - 1 : "auto",
+        formatter: (val: string) => {
+          const v = parseInt(val);
+          return mode === "raw" ? val : (v / interpFactor).toString();
+        }
+      }
+    },
     visualMap: {
-      min: visualMapMin,
-      max: visualMapMax,
+      min: view.scaledMin,
+      max: view.scaledMax,
       calculable: true,
       orient: "vertical",
       right: 0,
-      top: "center",
-      inRange: { color: ["#e6f7ff", "#1677ff", "#0050b3"] },
-      dimension: 2, // 显式指定使用第3列（Q值）进行颜色映射，避免使用第4列（角度）
-      formatter: (value: number) => value.toFixed(3), // 保留三位小数
+      top: "middle",
+      inRange: { color: ["#e6f7ff", "#87bfff", "#1677ff", "#003a8c"] },
+      dimension: 2,
+      formatter: (value: number) => `${unscaleQ(value).toFixed(4)}`,
     },
     series: [
       {
         name: "Q值",
         type: "heatmap",
-        data: data,
+        data: view.data,
         emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,0.5)" } },
-        markPoint: selected ? {
-          data: [{ coord: [selected.x, selected.y], symbolSize: 20, itemStyle: { color: "#fa8c16", borderColor: "#fff", borderWidth: 2 } }],
+        markPoint: selected && mode === "raw" ? {
+          data: [
+            {
+              coord: mode === "raw" ? [selected.x, selected.y] : [selected.x * interpFactor, selected.y * interpFactor],
+              symbolSize: 20,
+              itemStyle: { color: "#fa8c16", borderColor: "#fff", borderWidth: 2 },
+            }
+          ],
           symbol: "circle",
         } : undefined,
       },
     ],
+    graphic: [
+      {
+        type: 'text',
+        right: 6,
+        bottom: 4,
+        style: {
+          text: `原始Q值范围: [${view.rawMin.toFixed(4)}, ${view.rawMax.toFixed(4)}]`,
+          fontSize: 11,
+          fill: '#666'
+        }
+      }
+    ]
   };
 
-  return (
-    <div>
-      <ReactECharts option={option} style={{ height: 380 }} />
-      <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginTop: 4 }}>
-        Q值范围: [{minVal.toFixed(4)}, {maxVal.toFixed(4)}] 
-      </div>
-    </div>
-  );
+  return <ReactECharts option={option} style={{ height: 380 }} notMerge={true} />;
 };
 
-// 物料量变化图表组件
 const InventoryChart = ({ data }: { data: { series: Array<{ name: string; data: Array<[number, number]> }>; duration: number } }) => {
   const colorPalette = [
     '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
