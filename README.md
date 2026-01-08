@@ -22,8 +22,9 @@ FactoGenie 是一个使用深度强化学习（Deep Reinforcement Learning）进
 ### 1. 克隆仓库并进入目录：
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/YZA114514/FactoGenie.git
 cd FactoGenie
+git checkout develop
 ```
 
 ### 2. 在虚拟环境中安装依赖并运行后端：
